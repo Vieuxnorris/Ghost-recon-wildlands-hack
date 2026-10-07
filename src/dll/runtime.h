@@ -43,6 +43,7 @@ private:
     double window_start_ms_ = 0;
     uint64_t window_frames_ = 0;
     Percentiles last_stats_[kStageCount] = {};
+    bool overlay_reported_ = false;
 };
 
 Runtime& Rt();

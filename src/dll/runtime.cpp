@@ -2,6 +2,8 @@
 #include <windows.h>
 #include <cstdio>
 #include "core/clock.h"
+#include "dll/overlay.h"
+#include "dll/panel.h"
 #include "telemetry/json_line.h"
 
 namespace grw {
@@ -39,14 +41,27 @@ void Runtime::OnFrame(IDXGISwapChain* sc) {
     const StageSpan total;
     frame_.fetch_add(1, std::memory_order_relaxed);
     ++window_frames_;
-    (void)sc;  // Task 12: overlay frame (Stage::Draw)
+
+    const StageSpan draw;
+    const bool overlay_ok = overlay::Frame(sc, &DrawPanel);
+    draw.End(*stats_, Stage::Draw);
+    if (!overlay_reported_) {
+        overlay_reported_ = true;
+        Line l;
+        JsonLine(l, "status", tel_->SinceStartMs(), Frame())
+            .Str("event", "overlay")
+            .Str("detail", overlay_ok ? "ok" : "failed")
+            .Finish();
+        tel_->Push(Channel::Render, l);
+    }
+
     total.End(*stats_, Stage::Total);
     if (Clock::NowMs() - window_start_ms_ >= 10'000.0) PushFrameStats();
 }
 
 void Runtime::OnResize(IDXGISwapChain* sc, bool before) {
-    (void)sc;  // Task 12: release / recreate the overlay render target
-    (void)before;
+    if (before) overlay::BeforeResize();
+    else overlay::AfterResize(sc);
 }
 
 void Runtime::PushFrameStats() {

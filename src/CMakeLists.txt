@@ -20,8 +20,9 @@ add_test(NAME testhost_smoke COMMAND testhost --exit-after 2000 --resize-every 3
 add_test(NAME testhost_present1 COMMAND testhost --present1 --exit-after 1000)
 
 find_package(minhook CONFIG REQUIRED)
-add_library(grw SHARED dll/dllmain.cpp dll/hooks.cpp dll/runtime.cpp)
-target_link_libraries(grw PRIVATE grw_core minhook::minhook d3d11 dxgi)
+find_package(imgui CONFIG REQUIRED)
+add_library(grw SHARED dll/dllmain.cpp dll/hooks.cpp dll/runtime.cpp dll/overlay.cpp dll/panel.cpp)
+target_link_libraries(grw PRIVATE grw_core minhook::minhook imgui::imgui d3d11 dxgi)
 
 add_executable(injector injector/main.cpp)
 target_include_directories(injector PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

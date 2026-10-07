@@ -86,9 +86,13 @@ bool LoadRemote(DWORD pid, const std::wstring& dll) {
         auto load = reinterpret_cast<LPTHREAD_START_ROUTINE>(
             GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW"));
         HANDLE t = CreateRemoteThread(proc, nullptr, 0, load, remote, 0, nullptr);
-        ok = t && WaitForSingleObject(t, 5000) == WAIT_OBJECT_0;
+        const DWORD wait = t ? WaitForSingleObject(t, 5000) : WAIT_FAILED;
         DWORD code = 0;
-        if (ok) ok = GetExitCodeThread(t, &code) && code != 0;  // truncated HMODULE: non-zero = loaded
+        ok = wait == WAIT_OBJECT_0 && GetExitCodeThread(t, &code) && code != 0;  // truncated HMODULE
+        if (!ok)
+            std::fwprintf(stderr, L"remote LoadLibraryW: %ls\n",
+                          wait == WAIT_TIMEOUT ? L"timed out after 5 s (loader lock held?)"
+                          : wait == WAIT_OBJECT_0 ? L"returned NULL" : L"thread creation or wait failed");
         if (t) CloseHandle(t);
     }
     if (remote) VirtualFreeEx(proc, remote, 0, MEM_RELEASE);

@@ -3,6 +3,7 @@
 #include "common/shared_control.h"
 #include "core/clock.h"
 #include "dll/hooks.h"
+#include "dll/overlay.h"
 #include "dll/runtime.h"
 
 namespace {
@@ -34,7 +35,9 @@ DWORD WINAPI MainThread(LPVOID) {
     InterlockedExchange(&c->loaded, 1);
     while (InterlockedCompareExchange(&c->unload_request, 0, 0) == 0) Sleep(100);
 
+    grw::overlay::ReleaseBackBuffer(500);
     if (hooked) grw::hooks::Uninstall();
+    grw::overlay::Shutdown();
     char detail[64];
     std::snprintf(detail, sizeof detail, "presents=%llu", grw::hooks::PresentCalls());
     rt.Status("unload", detail);
