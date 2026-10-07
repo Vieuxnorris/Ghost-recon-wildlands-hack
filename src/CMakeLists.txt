@@ -18,3 +18,9 @@ target_link_libraries(testhost PRIVATE d3d11 dxgi)
 
 add_test(NAME testhost_smoke COMMAND testhost --exit-after 2000 --resize-every 300)
 add_test(NAME testhost_present1 COMMAND testhost --present1 --exit-after 1000)
+
+add_library(grw SHARED dll/dllmain.cpp)
+target_link_libraries(grw PRIVATE grw_core)
+
+add_executable(injector injector/main.cpp)
+target_include_directories(injector PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

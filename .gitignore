@@ -7,6 +7,7 @@ out/
 
 # Runtime data
 telemetry/
+runtime/
 traces/*.jsonl
 !traces/fixtures/
 
