@@ -3,8 +3,9 @@
 
 namespace grw::overlay {
 
-// Render thread: lazily initialises ImGui on this swap chain, runs draw(), renders on the back buffer.
-bool Frame(IDXGISwapChain* sc, void (*draw)());
+// Render thread: lazily initialises ImGui on this swap chain, runs draw(), and renders on the back buffer
+// when `render` is true (false = build the ImGui frame only; used to measure what rendering costs).
+bool Frame(IDXGISwapChain* sc, void (*draw)(), bool render);
 void BeforeResize();
 void AfterResize(IDXGISwapChain* sc);
 // DLL main thread, BEFORE removing the DXGI hooks: the next Present drops our back-buffer reference

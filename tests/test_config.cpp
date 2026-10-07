@@ -16,6 +16,15 @@ TEST_CASE("ParseConfig reads keys, floats, hex and comments") {
     CHECK(c.aim_cone_deg == Config{}.aim_cone_deg);  // absent key keeps its value
 }
 
+TEST_CASE("ParseConfig reads overlay_mode and rejects values outside 0..2") {
+    Config c;
+    CHECK(c.overlay_mode == 2);
+    REQUIRE(ParseConfig("overlay_mode = 0\n", c).ok);
+    CHECK(c.overlay_mode == 0);
+    CHECK_FALSE(ParseConfig("overlay_mode = 3\n", c).ok);
+    CHECK(c.overlay_mode == 0);
+}
+
 TEST_CASE("ParseConfig rejects the whole file on an unknown key") {
     Config c;
     c.aim_tau_ms = 99.0f;

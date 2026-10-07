@@ -40,6 +40,7 @@ bool Assign(Config& c, std::string_view key, std::string_view v) {
     if (key == "aim_deadzone_frac") return ParseFloat(v, c.aim_deadzone_frac);
     if (key == "aim_hidden_ms") return ParseFloat(v, c.aim_hidden_ms);
     if (key == "esp_max_distance_m") return ParseFloat(v, c.esp_max_distance_m);
+    if (key == "overlay_mode") return ParseInt(v, c.overlay_mode) && c.overlay_mode >= 0 && c.overlay_mode <= 2;
     return false;
 }
 
@@ -82,7 +83,9 @@ std::string DefaultConfigText() {
       << "aim_max_speed_deg_s = " << d.aim_max_speed_deg_s << "\n"
       << "aim_deadzone_frac = " << d.aim_deadzone_frac << "\n"
       << "aim_hidden_ms = " << d.aim_hidden_ms << "\n"
-      << "esp_max_distance_m = " << d.esp_max_distance_m << "\n";
+      << "esp_max_distance_m = " << d.esp_max_distance_m << "\n"
+      << "# 0 = hooks only, 1 = ImGui frame without rendering, 2 = full overlay\n"
+      << "overlay_mode = " << d.overlay_mode << "\n";
     return s.str();
 }
 

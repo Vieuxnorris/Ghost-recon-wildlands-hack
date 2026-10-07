@@ -42,17 +42,20 @@ void Runtime::OnFrame(IDXGISwapChain* sc) {
     frame_.fetch_add(1, std::memory_order_relaxed);
     ++window_frames_;
 
-    const StageSpan draw;
-    const bool overlay_ok = overlay::Frame(sc, &DrawPanel);
-    draw.End(*stats_, Stage::Draw);
-    if (!overlay_reported_) {
-        overlay_reported_ = true;
-        Line l;
-        JsonLine(l, "status", tel_->SinceStartMs(), Frame())
-            .Str("event", "overlay")
-            .Str("detail", overlay_ok ? "ok" : "failed")
-            .Finish();
-        tel_->Push(Channel::Render, l);
+    const int mode = overlay_mode_.load(std::memory_order_relaxed);
+    if (mode > 0) {
+        const StageSpan draw;
+        const bool overlay_ok = overlay::Frame(sc, &DrawPanel, mode == 2);
+        draw.End(*stats_, Stage::Draw);
+        if (!overlay_reported_) {
+            overlay_reported_ = true;
+            Line l;
+            JsonLine(l, "status", tel_->SinceStartMs(), Frame())
+                .Str("event", "overlay")
+                .Str("detail", overlay_ok ? "ok" : "failed")
+                .Finish();
+            tel_->Push(Channel::Render, l);
+        }
     }
 
     total.End(*stats_, Stage::Total);
@@ -100,6 +103,7 @@ void Runtime::Tick() {
     }
 
     const Config c = config_->Snapshot();
+    overlay_mode_.store(c.overlay_mode, std::memory_order_relaxed);
     const int keys[3] = {c.menu_key, c.panel_key, c.unload_key};
     for (int i = 0; i < 3; ++i) {
         const bool down = (GetAsyncKeyState(keys[i]) & 0x8000) != 0;

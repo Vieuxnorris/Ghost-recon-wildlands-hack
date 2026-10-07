@@ -110,7 +110,7 @@ void NewFrame() {
 
 }  // namespace
 
-bool Frame(IDXGISwapChain* sc, void (*draw)()) {
+bool Frame(IDXGISwapChain* sc, void (*draw)(), bool render) {
     if (g_release_requested.load(std::memory_order_acquire)) {
         BeforeResize();
         g_released.store(true, std::memory_order_release);
@@ -122,6 +122,7 @@ bool Frame(IDXGISwapChain* sc, void (*draw)()) {
     NewFrame();
     draw();
     ImGui::Render();
+    if (!render) return true;
 
     ID3D11RenderTargetView* old_rtv = nullptr;
     ID3D11DepthStencilView* old_dsv = nullptr;

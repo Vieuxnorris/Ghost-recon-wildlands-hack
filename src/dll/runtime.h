@@ -39,6 +39,7 @@ private:
     std::atomic<bool> menu_open_{false};
     std::atomic<bool> panel_open_{true};
     std::atomic<uint64_t> frame_{0};
+    std::atomic<int> overlay_mode_{2};  // copied from the config on the writer thread
     bool key_down_[3] = {};
     double window_start_ms_ = 0;
     uint64_t window_frames_ = 0;

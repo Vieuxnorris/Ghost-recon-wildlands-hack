@@ -16,6 +16,7 @@ struct Config {
     float aim_deadzone_frac = 0.3f;
     float aim_hidden_ms = 150.0f;
     float esp_max_distance_m = 300.0f;
+    int overlay_mode = 2;  // 0 = hooks only, 1 = ImGui frame without rendering, 2 = full overlay
 };
 
 struct ParseResult {
