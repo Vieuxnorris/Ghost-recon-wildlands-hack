@@ -1,0 +1,17 @@
+# Build
+build/
+out/
+*.pdb
+*.ilk
+*.obj
+
+# Runtime data
+telemetry/
+traces/*.jsonl
+!traces/fixtures/
+
+# Never commit game files, dumps or RE databases
+*.exe.dump
+*.gpr
+*.rep/
+*.CT
