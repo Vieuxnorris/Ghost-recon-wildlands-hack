@@ -8,5 +8,7 @@ add_library(grw_core STATIC
   telemetry/telemetry.cpp
   config/config.cpp
   aim/controller.cpp
-  aim/sway.cpp)
+  aim/sway.cpp
+  aim/recoil.cpp
+  aim/target.cpp)
 target_include_directories(grw_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
