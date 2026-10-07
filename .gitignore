@@ -17,3 +17,6 @@ traces/*.jsonl
 *.rep/
 *.CT
 
+
+# Python
+__pycache__/
