@@ -12,7 +12,8 @@ add_library(grw_core STATIC
   aim/recoil.cpp
   aim/target.cpp
   scan/matrix_detect.cpp
-  scan/candidates.cpp)
+  scan/candidates.cpp
+  scan/regions.cpp)
 target_include_directories(grw_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(testhost testhost/main.cpp)
