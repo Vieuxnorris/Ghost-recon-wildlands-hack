@@ -5,5 +5,6 @@ add_library(grw_core STATIC
   core/stats.cpp
   core/mem.cpp
   telemetry/json_line.cpp
-  telemetry/telemetry.cpp)
+  telemetry/telemetry.cpp
+  config/config.cpp)
 target_include_directories(grw_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
