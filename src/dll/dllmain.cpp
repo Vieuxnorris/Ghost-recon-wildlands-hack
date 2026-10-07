@@ -28,9 +28,16 @@ DWORD WINAPI MainThread(LPVOID) {
     char exe[MAX_PATH];
     GetModuleFileNameA(nullptr, exe, MAX_PATH);
     rt.Status("inject", exe);
+    const auto method = grw::hooks::Method(rt.Cfg().hook_method);
     const bool hooked = grw::hooks::Install([](IDXGISwapChain* sc) { grw::Rt().OnFrame(sc); },
-                                            [](IDXGISwapChain* sc, bool before) { grw::Rt().OnResize(sc, before); });
-    rt.Status("hooks", hooked ? "ok" : "failed");
+                                            [](IDXGISwapChain* sc, bool before) { grw::Rt().OnResize(sc, before); },
+                                            [](double cpu, double wall) { grw::Rt().OnPresented(cpu, wall); },
+                                            method);
+    const char* const kHow[] = {"inline", "vtable", "dummy only (no hooks)", "none (no hooks)"};
+    const char* how = kHow[int(method)];
+    char hooks_detail[48];
+    std::snprintf(hooks_detail, sizeof hooks_detail, "%s %s", hooked ? "ok" : "failed", how);
+    rt.Status("hooks", hooks_detail);
 
     InterlockedExchange(&c->loaded, 1);
     while (InterlockedCompareExchange(&c->unload_request, 0, 0) == 0) Sleep(100);

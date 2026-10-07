@@ -25,6 +25,15 @@ TEST_CASE("ParseConfig reads overlay_mode and rejects values outside 0..2") {
     CHECK(c.overlay_mode == 0);
 }
 
+TEST_CASE("ParseConfig reads hook_method and rejects values outside 0..3") {
+    Config c;
+    CHECK(c.hook_method == 0);
+    REQUIRE(ParseConfig("hook_method = 3\n", c).ok);
+    CHECK(c.hook_method == 3);
+    CHECK_FALSE(ParseConfig("hook_method = 4\n", c).ok);
+    CHECK(c.hook_method == 3);
+}
+
 TEST_CASE("ParseConfig rejects the whole file on an unknown key") {
     Config c;
     c.aim_tau_ms = 99.0f;

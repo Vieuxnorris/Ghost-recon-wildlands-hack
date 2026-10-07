@@ -24,5 +24,8 @@ find_package(imgui CONFIG REQUIRED)
 add_library(grw SHARED dll/dllmain.cpp dll/hooks.cpp dll/runtime.cpp dll/overlay.cpp dll/panel.cpp)
 target_link_libraries(grw PRIVATE grw_core minhook::minhook imgui::imgui d3d11 dxgi)
 
+add_executable(probe probe/main.cpp)
+target_link_libraries(probe PRIVATE d3d11 dxgi psapi)
+
 add_executable(injector injector/main.cpp)
 target_include_directories(injector PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

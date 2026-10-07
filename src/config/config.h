@@ -17,6 +17,9 @@ struct Config {
     float aim_hidden_ms = 150.0f;
     float esp_max_distance_m = 300.0f;
     int overlay_mode = 2;  // 0 = hooks only, 1 = ImGui frame without rendering, 2 = full overlay
+    // Read at injection: 0 = inline patch (MinHook), 1 = dxgi vtable slots.
+    // Diagnostics: 2 = throwaway swap chain only, no hooks; 3 = nothing at all (threads only).
+    int hook_method = 0;
 };
 
 struct ParseResult {

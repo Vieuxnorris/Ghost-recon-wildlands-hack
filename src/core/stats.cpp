@@ -6,7 +6,8 @@
 namespace grw {
 
 const char* StageName(Stage s) {
-    static constexpr const char* kNames[kStageCount] = {"camera", "entities", "bones", "aim", "draw", "total"};
+    static constexpr const char* kNames[kStageCount] = {"camera", "entities", "bones", "aim", "draw", "total",
+                                                                 "chain", "interval"};
     return size_t(s) < kStageCount ? kNames[size_t(s)] : "?";
 }
 

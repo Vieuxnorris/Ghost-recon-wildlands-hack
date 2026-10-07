@@ -39,6 +39,8 @@ void Runtime::Status(const char* event, const char* detail) {
 
 void Runtime::OnFrame(IDXGISwapChain* sc) {
     const StageSpan total;
+    if (last_frame_ms_ > 0) stats_->Add(Stage::Interval, 0.0f, float(total.wall0 - last_frame_ms_));
+    last_frame_ms_ = total.wall0;
     frame_.fetch_add(1, std::memory_order_relaxed);
     ++window_frames_;
 
@@ -67,6 +69,8 @@ void Runtime::OnResize(IDXGISwapChain* sc, bool before) {
     else overlay::AfterResize(sc);
 }
 
+void Runtime::OnPresented(double cpu_ms, double wall_ms) { stats_->Add(Stage::Chain, float(cpu_ms), float(wall_ms)); }
+
 void Runtime::PushFrameStats() {
     stats_->Flush(last_stats_);
     Line l;
@@ -81,6 +85,8 @@ void Runtime::PushFrameStats() {
         j.Num(key, p.p50_cpu);
         std::snprintf(key, sizeof key, "%s_p99", name);
         j.Num(key, p.p99_cpu);
+        std::snprintf(key, sizeof key, "%s_wall_p50", name);
+        j.Num(key, p.p50_wall);
         std::snprintf(key, sizeof key, "%s_wall_p99", name);
         j.Num(key, p.p99_wall);
     }

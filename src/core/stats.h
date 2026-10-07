@@ -4,7 +4,9 @@
 
 namespace grw {
 
-enum class Stage : uint8_t { Camera, Entities, Bones, Aim, Draw, Total, Count };
+// Chain: the call into the original Present (other overlays' detours, then dxgi).
+// Interval: wall time between two frames seen by the hook (cpu is 0).
+enum class Stage : uint8_t { Camera, Entities, Bones, Aim, Draw, Total, Chain, Interval, Count };
 inline constexpr size_t kStageCount = size_t(Stage::Count);
 const char* StageName(Stage s);
 

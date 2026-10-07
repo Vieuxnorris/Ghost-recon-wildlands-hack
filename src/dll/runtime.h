@@ -19,6 +19,7 @@ public:
     void Stop();
     void OnFrame(IDXGISwapChain* sc);
     void OnResize(IDXGISwapChain* sc, bool before);
+    void OnPresented(double cpu_ms, double wall_ms);
     void Status(const char* event, const char* detail);
 
     Telemetry& Tel() { return *tel_; }
@@ -43,6 +44,7 @@ private:
     bool key_down_[3] = {};
     double window_start_ms_ = 0;
     uint64_t window_frames_ = 0;
+    double last_frame_ms_ = 0;
     Percentiles last_stats_[kStageCount] = {};
     bool overlay_reported_ = false;
 };
