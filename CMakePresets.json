@@ -1,0 +1,22 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "vs-x64",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "x64-windows-static" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "release", "configurePreset": "vs-x64", "configuration": "RelWithDebInfo" }
+  ],
+  "testPresets": [
+    {
+      "name": "release", "configurePreset": "vs-x64", "configuration": "RelWithDebInfo",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

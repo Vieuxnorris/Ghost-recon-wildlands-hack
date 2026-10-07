@@ -1,0 +1,16 @@
+{
+  "name": "grw",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "catch2",
+    "minhook",
+    {
+      "name": "imgui",
+      "features": [
+        "dx11-binding",
+        "win32-binding"
+      ]
+    }
+  ],
+  "builtin-baseline": "2cfff9c458d9dcf642e9fa09ba624f9931bb5358"
+}
