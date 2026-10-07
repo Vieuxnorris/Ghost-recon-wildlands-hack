@@ -28,6 +28,12 @@ DWORD WINAPI MainThread(LPVOID) {
     char exe[MAX_PATH];
     GetModuleFileNameA(nullptr, exe, MAX_PATH);
     rt.Status("inject", exe);
+    // The linker's PE timestamp changes on every link: proves which build is loaded.
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(g_module);
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(reinterpret_cast<const BYTE*>(g_module) + dos->e_lfanew);
+    char build[32];
+    std::snprintf(build, sizeof build, "link 0x%08lx", nt->FileHeader.TimeDateStamp);
+    rt.Status("build", build);
     const auto method = grw::hooks::Method(rt.Cfg().hook_method);
     const bool hooked = grw::hooks::Install([](IDXGISwapChain* sc) { grw::Rt().OnFrame(sc); },
                                             [](IDXGISwapChain* sc, bool before) { grw::Rt().OnResize(sc, before); },
