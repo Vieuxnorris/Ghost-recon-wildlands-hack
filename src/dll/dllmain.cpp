@@ -4,6 +4,7 @@
 #include "core/clock.h"
 #include "dll/hooks.h"
 #include "dll/overlay.h"
+#include "dll/hwbp.h"
 #include "dll/runtime.h"
 
 namespace {
@@ -55,6 +56,8 @@ DWORD WINAPI MainThread(LPVOID) {
     std::snprintf(detail, sizeof detail, "presents=%llu", grw::hooks::PresentCalls());
     rt.Status("unload", detail);
     rt.Stop();
+    // after the writer thread (the only caller of Configure) has stopped, before this module unloads
+    grw::hwbp::Shutdown();
     InterlockedExchange(&c->unload_request, 0);
     Exit(0);
 }

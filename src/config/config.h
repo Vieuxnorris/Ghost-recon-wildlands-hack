@@ -21,6 +21,11 @@ struct Config {
     float aim_gravity = 9.81f;
     float aim_zero_m = 0.0f;
     int aim_lead = 1;
+    // Research: hardware write watchpoint (debug registers) on a game address; 0 = off.
+    unsigned long long hwbp_addr = 0, hwbp_addr2 = 0, hwbp_addr3 = 0, hwbp_addr4 = 0;  // DR0-DR3
+    int hwbp_len = 4;
+    int hwbp_max_hits = 8;
+    int hwbp_read = 0;  // 0 write, 1 read or write, 2 execute (hwbp_addr = an instruction)
     float esp_max_distance_m = 300.0f;
     int esp_enabled = 1;
     int esp_key = 0x75;  // VK_F6 toggles the ESP

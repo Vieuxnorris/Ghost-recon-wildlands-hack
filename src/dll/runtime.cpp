@@ -3,6 +3,7 @@
 #include <cstdio>
 #include "core/clock.h"
 #include "dll/overlay.h"
+#include "dll/hwbp.h"
 #include "dll/panel.h"
 #include "telemetry/json_line.h"
 
@@ -167,6 +168,10 @@ void Runtime::Tick() {
     const Config c = config_->Snapshot();
     overlay_mode_.store(c.overlay_mode, std::memory_order_relaxed);
     world_.SetInterval(DWORD(c.esp_scan_interval_ms));
+    const uintptr_t watch[4] = {uintptr_t(c.hwbp_addr), uintptr_t(c.hwbp_addr2), uintptr_t(c.hwbp_addr3),
+                                uintptr_t(c.hwbp_addr4)};
+    hwbp::Configure(watch, c.hwbp_len, c.hwbp_max_hits, hwbp::Mode(c.hwbp_read));
+    hwbp::Drain(*tel_);
     const int keys[4] = {c.menu_key, c.panel_key, c.unload_key, c.esp_key};
     for (int i = 0; i < 4; ++i) {
         const bool down = (GetAsyncKeyState(keys[i]) & 0x8000) != 0;

@@ -24,6 +24,16 @@ bool ParseInt(std::string_view v, int& out) {
     return r.ec == std::errc{} && r.ptr == v.data() + v.size();
 }
 
+bool ParseU64(std::string_view v, unsigned long long& out) {
+    int base = 10;
+    if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) {
+        v.remove_prefix(2);
+        base = 16;
+    }
+    const auto r = std::from_chars(v.data(), v.data() + v.size(), out, base);
+    return r.ec == std::errc{} && r.ptr == v.data() + v.size();
+}
+
 bool ParseFloat(std::string_view v, float& out) {
     const auto r = std::from_chars(v.data(), v.data() + v.size(), out);
     return r.ec == std::errc{} && r.ptr == v.data() + v.size();
@@ -44,6 +54,14 @@ bool Assign(Config& c, std::string_view key, std::string_view v) {
     if (key == "aim_gravity") return ParseFloat(v, c.aim_gravity);
     if (key == "aim_zero_m") return ParseFloat(v, c.aim_zero_m) && c.aim_zero_m >= 0.0f;
     if (key == "aim_lead") return ParseInt(v, c.aim_lead);
+    if (key == "hwbp_addr") return ParseU64(v, c.hwbp_addr);
+    if (key == "hwbp_addr2") return ParseU64(v, c.hwbp_addr2);
+    if (key == "hwbp_addr3") return ParseU64(v, c.hwbp_addr3);
+    if (key == "hwbp_addr4") return ParseU64(v, c.hwbp_addr4);
+    if (key == "hwbp_len")
+        return ParseInt(v, c.hwbp_len) && (c.hwbp_len == 1 || c.hwbp_len == 2 || c.hwbp_len == 4 || c.hwbp_len == 8);
+    if (key == "hwbp_max_hits") return ParseInt(v, c.hwbp_max_hits) && c.hwbp_max_hits > 0;
+    if (key == "hwbp_read") return ParseInt(v, c.hwbp_read) && c.hwbp_read >= 0 && c.hwbp_read <= 2;
     if (key == "esp_max_distance_m") return ParseFloat(v, c.esp_max_distance_m);
     if (key == "esp_enabled") return ParseInt(v, c.esp_enabled);
     if (key == "esp_key") return ParseInt(v, c.esp_key);

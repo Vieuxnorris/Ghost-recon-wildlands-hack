@@ -27,7 +27,7 @@ add_test(NAME testhost_present1 COMMAND testhost --present1 --exit-after 1000)
 
 find_package(minhook CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
-add_library(grw SHARED dll/dllmain.cpp dll/hooks.cpp dll/runtime.cpp dll/overlay.cpp dll/panel.cpp dll/esp.cpp dll/aimbot.cpp)
+add_library(grw SHARED dll/dllmain.cpp dll/hooks.cpp dll/runtime.cpp dll/overlay.cpp dll/panel.cpp dll/esp.cpp dll/aimbot.cpp dll/hwbp.cpp)
 target_link_libraries(grw PRIVATE grw_core minhook::minhook imgui::imgui d3d11 dxgi)
 
 add_executable(probe probe/main.cpp)
