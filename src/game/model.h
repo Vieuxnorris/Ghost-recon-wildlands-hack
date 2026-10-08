@@ -54,6 +54,15 @@ inline constexpr uintptr_t kWeaponDataVtableRva = 0x38C1250;
 inline constexpr size_t kWeaponDataSpeedOff = 0x208;   // m/s: R4 889, MP5 680, P45T 200.66 (bullet speed, unproven)
 inline constexpr size_t kWeaponDataDamageOff = 0x398;  // R4 77, MP5 50, P45T 40 (the damage in the fire parameters)
 
+// Fire function (camera-findings.md section 6): fire(shooter S = [W+0x110], params*), one call per shot of
+// any character; params: origin +0x10, unit direction +0x20 (3 floats each).
+inline constexpr uintptr_t kFireRva = 0x1471F8E0;
+inline constexpr size_t kFireOriginOff = 0x10;
+inline constexpr size_t kFireDirOff = 0x20;
+// Projectile speed function (live/72): called once per simulation step of every projectile, rcx = projectile
+// (position +0x190, next position +0x1a0, direction +0x140, origin +0x150, elapsed time +0x120, speed +0x1b8).
+inline constexpr uintptr_t kProjSpeedFnRva = 0x14707340;
+
 inline constexpr uint32_t kFlagPlayer = 0x1;
 inline constexpr uint32_t kFlagAi = 0x2;
 inline constexpr uint32_t kFlagCombatant = 0x8;

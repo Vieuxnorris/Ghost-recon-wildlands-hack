@@ -1,4 +1,5 @@
 #pragma once
+#include "aim/trajectory.h"
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
@@ -30,10 +31,16 @@ public:
         float offset_yaw_deg = 0, offset_pitch_deg = 0;  // crosshair - accumulator, smoothed
         bool recoil_hold = false;
         float flight_ms = 0;  // ballistic flight time to the target (0 = ballistics off)
+        float drop_m = 0;     // drop compensated (learned table)
+        int trajectory = 0;   // 0 = physics fallback, 1 = learned table, 2 = table extrapolated
+        float table_max_m = 0;
+        BulletKey bullet;     // the setup of the table in use
         uint64_t writes = 0;
     };
 
-    void Update(const game::EspFrame& f, const Config& c, Telemetry& tel, uint64_t frame);
+    // tab: the learned path of the weapon in hand (nullptr = none yet), valid during the call.
+    void Update(const game::EspFrame& f, const Config& c, Telemetry& tel, uint64_t frame,
+                const TrajectoryTable* tab = nullptr, const BulletKey& key = {});
     const Status& Last() const { return status_; }
 
 private:

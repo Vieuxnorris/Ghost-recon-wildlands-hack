@@ -5,9 +5,11 @@
 #include <memory>
 #include <string>
 #include "common/shared_control.h"
+#include "aim/trajectory.h"
 #include "config/config.h"
 #include "core/stats.h"
 #include "dll/aimbot.h"
+#include "dll/bullet_probe.h"
 #include "game/world.h"
 #include "telemetry/telemetry.h"
 
@@ -38,6 +40,7 @@ public:
 
 private:
     void Tick();
+    void SaveTrajectories();
     void PushFrameStats();
     void PushEspStats();
 
@@ -53,6 +56,14 @@ private:
     game::World world_;
     game::EspFrame esp_;
     Aimbot aim_;
+    bullet::Probe probe_;
+    std::atomic<float> cam_x_{0}, cam_y_{0}, cam_z_{0};  // render thread -> writer thread (player's shots)
+    std::atomic<float> weapon_speed_{0}, weapon_damage_{0};
+    // Learned bullet paths (writer thread adds the player's projectile steps, render thread aims with them).
+    TrajectoryBook book_;
+    mutable SRWLOCK book_lock_ = SRWLOCK_INIT;
+    std::wstring book_path_;
+    double book_saved_ms_ = 0;
     std::atomic<bool> esp_on_{true};
     double esp_window_ms_ = 0;
     double window_start_ms_ = 0;

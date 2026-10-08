@@ -26,6 +26,11 @@ struct Config {
     int hwbp_len = 4;
     int hwbp_max_hits = 8;
     int hwbp_read = 0;  // 0 write, 1 read or write, 2 execute (hwbp_addr = an instruction)
+    // Research: find each fired bullet in memory and record its flight (needs the execute breakpoint on the
+    // fire function, base + 0x1471F8E0).
+    int bullet_probe = 0;
+    // Research: sample each step of the player's projectiles (instruction breakpoint on DR1).
+    int proj_track = 0;
     float esp_max_distance_m = 300.0f;
     int esp_enabled = 1;
     int esp_key = 0x75;  // VK_F6 toggles the ESP

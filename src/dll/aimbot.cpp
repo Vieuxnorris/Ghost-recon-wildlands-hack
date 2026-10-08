@@ -41,6 +41,8 @@ void Aimbot::TrackKills(const game::EspFrame& f, double now, Telemetry& tel, uin
                     .Num("speed_est", it.dist / (dt / 1000.0))
                     .Num("fov", f.fov_deg)
                     .Bool("locked", it.addr == status_.target)
+                    .Num("weapon_speed", f.weapon_speed)
+                    .Num("weapon_damage", f.weapon_damage)
                     .Finish();
                 tel.Push(Channel::Render, l);
             }
@@ -50,7 +52,10 @@ void Aimbot::TrackKills(const game::EspFrame& f, double now, Telemetry& tel, uin
     if (last_cat_.size() > 4096) last_cat_.clear();
 }
 
-void Aimbot::Update(const game::EspFrame& f, const Config& c, Telemetry& tel, uint64_t frame) {
+void Aimbot::Update(const game::EspFrame& f, const Config& c, Telemetry& tel, uint64_t frame,
+                    const TrajectoryTable* tab, const BulletKey& key) {
+    status_.table_max_m = tab ? tab->MaxAlong() : 0;
+    status_.bullet = tab ? key : BulletKey{};
     const double now = Clock::NowMs();
     TrackKills(f, now, tel, frame);
     status_.key = c.aim_enabled && (GetAsyncKeyState(c.aim_key) & 0x8000) != 0;
@@ -135,8 +140,21 @@ void Aimbot::Update(const game::EspFrame& f, const Config& c, Telemetry& tel, ui
     bal.gravity = c.aim_gravity;
     bal.zero_m = c.aim_zero_m;
     float flight_s = 0;
-    const Vec3 aim_point =
-        BallisticAimPoint(f.camera.pos, target->head_world, c.aim_lead ? vel_ : Vec3{}, bal, &flight_s);
+    Vec3 aim_point;
+    // The bullet path learned from the player's own shots (the game's real one); physics with the configured
+    // speed as a fallback, or when aim_bullet_speed forces it.
+    TableAim ta;
+    const Vec3 lead = c.aim_lead ? vel_ : Vec3{};
+    if (c.aim_bullet_speed <= 0 && tab && TableAimPoint(f.camera.pos, target->head_world, lead, *tab, ta)) {
+        aim_point = ta.point;
+        flight_s = ta.flight_s;
+        status_.drop_m = ta.drop_m;
+        status_.trajectory = ta.extrapolated ? 2 : 1;
+    } else {
+        aim_point = BallisticAimPoint(f.camera.pos, target->head_world, lead, bal, &flight_s);
+        status_.drop_m = 0;
+        status_.trajectory = 0;
+    }
     status_.flight_ms = flight_s * 1000.0f;
     const Angles want = DirectionToAngles(aim_point - f.camera.pos);
     const Angles err = AngleDelta(aim_view, want);
@@ -181,6 +199,9 @@ void Aimbot::Update(const game::EspFrame& f, const Config& c, Telemetry& tel, ui
         .Bool("recoil_hold", recoil_.Holding())
         .Num("flight_ms", flight_s * 1000.0f)
         .Num("bullet_speed", bal.speed)
+        .Int("traj", status_.trajectory)
+        .Num("drop_m", status_.drop_m)
+        .Num("table_max", status_.table_max_m)
         .Num("lead_speed", vel_.Length())
         .Num("fov", f.fov_deg)
         .Num("dt", dt)

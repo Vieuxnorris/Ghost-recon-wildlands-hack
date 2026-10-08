@@ -62,6 +62,8 @@ bool Assign(Config& c, std::string_view key, std::string_view v) {
         return ParseInt(v, c.hwbp_len) && (c.hwbp_len == 1 || c.hwbp_len == 2 || c.hwbp_len == 4 || c.hwbp_len == 8);
     if (key == "hwbp_max_hits") return ParseInt(v, c.hwbp_max_hits) && c.hwbp_max_hits > 0;
     if (key == "hwbp_read") return ParseInt(v, c.hwbp_read) && c.hwbp_read >= 0 && c.hwbp_read <= 2;
+    if (key == "bullet_probe") return ParseInt(v, c.bullet_probe);
+    if (key == "proj_track") return ParseInt(v, c.proj_track);
     if (key == "esp_max_distance_m") return ParseFloat(v, c.esp_max_distance_m);
     if (key == "esp_enabled") return ParseInt(v, c.esp_enabled);
     if (key == "esp_key") return ParseInt(v, c.esp_key);
