@@ -111,8 +111,8 @@ TEST_CASE("A region freed before the scan is counted unreadable, without crashin
     const Region r{U(p), 0x10000};
     uint32_t tmp = 0;
     REQUIRE(ProcessReader(U(p), &tmp, 4, nullptr));  // caches the region in mem's thread cache
+    ScanBuffer buf;  // allocated first: once p is freed, VirtualAlloc could hand the same address back
     VirtualFree(p, 0, MEM_RELEASE);
-    ScanBuffer buf;
     CandidateSet set;
     const ScanStats st = ScanMatrices({r}, MatrixKind::Rigid, buf, set, &ProcessReader, nullptr, nullptr);
     CHECK(st.unreadable_blocks == 1);
