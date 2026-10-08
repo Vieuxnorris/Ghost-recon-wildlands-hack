@@ -44,6 +44,16 @@ inline constexpr size_t kAimPitchMinOff = 0x2E8;  // f32 rad (about -75 deg)
 inline constexpr size_t kAimPitchMaxOff = 0x2EC;  // f32 rad (about +75 deg)
 inline constexpr float kAimYawToHeading = 1.5707963f;  // heading = accumulator yaw + 90 deg
 
+// Active weapon of the player (camera-findings.md section 6): the weapon state component (single instance) holds
+// at +0x48 a weak handle to the weapon logic object W; [W+0x118] = the weapon's design data (with its parts).
+inline constexpr uintptr_t kWeaponStateVtableRva = 0x3B87F20;
+inline constexpr size_t kWeaponStateWeaponOff = 0x48;
+inline constexpr uintptr_t kWeaponVtableRva = 0x3905C18;
+inline constexpr size_t kWeaponDataOff = 0x118;
+inline constexpr uintptr_t kWeaponDataVtableRva = 0x38C1250;
+inline constexpr size_t kWeaponDataSpeedOff = 0x208;   // m/s: R4 889, MP5 680, P45T 200.66 (bullet speed, unproven)
+inline constexpr size_t kWeaponDataDamageOff = 0x398;  // R4 77, MP5 50, P45T 40 (the damage in the fire parameters)
+
 inline constexpr uint32_t kFlagPlayer = 0x1;
 inline constexpr uint32_t kFlagAi = 0x2;
 inline constexpr uint32_t kFlagCombatant = 0x8;

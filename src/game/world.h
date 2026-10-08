@@ -46,6 +46,8 @@ struct EspFrame {
     Vec3 camera_pos;
     CameraView camera;
     AimState aim;
+    float weapon_speed = 0;   // m/s from the active weapon's data, 0 = unknown
+    float weapon_damage = 0;
     uint32_t known = 0;     // character objects from the last scan
     uint32_t active = 0;    // valid, not at the origin, within range
     uint32_t on_screen = 0;
@@ -66,6 +68,7 @@ public:
 private:
     void Run();
     void ReadAim(uintptr_t entity, AimState& aim) const;
+    void ReadWeapon(EspFrame& out) const;
 
     Telemetry* tel_ = nullptr;
     uintptr_t base_ = 0;
@@ -77,12 +80,14 @@ private:
 
     SRWLOCK lock_ = SRWLOCK_INIT;  // guards the published scan result
     uintptr_t camera_ = 0;
+    uintptr_t weapon_state_ = 0;
     std::vector<uintptr_t> chars_;
     uint64_t generation_ = 0;
 
     // render thread copy
     uint64_t seen_generation_ = ~0ull;
     uintptr_t r_camera_ = 0;
+    uintptr_t r_weapon_state_ = 0;
     std::vector<uintptr_t> r_chars_;
     std::vector<float> bones_;
 };

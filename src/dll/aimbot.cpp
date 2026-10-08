@@ -131,7 +131,7 @@ void Aimbot::Update(const game::EspFrame& f, const Config& c, Telemetry& tel, ui
     }
 
     Ballistics bal;
-    bal.speed = c.aim_bullet_speed;
+    bal.speed = c.aim_bullet_speed > 0 ? c.aim_bullet_speed : f.weapon_speed;  // the game's value by default
     bal.gravity = c.aim_gravity;
     bal.zero_m = c.aim_zero_m;
     float flight_s = 0;
@@ -180,6 +180,7 @@ void Aimbot::Update(const game::EspFrame& f, const Config& c, Telemetry& tel, ui
         .Num("off_pitch", RadToDeg(offset.pitch))
         .Bool("recoil_hold", recoil_.Holding())
         .Num("flight_ms", flight_s * 1000.0f)
+        .Num("bullet_speed", bal.speed)
         .Num("lead_speed", vel_.Length())
         .Num("fov", f.fov_deg)
         .Num("dt", dt)

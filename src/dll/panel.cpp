@@ -35,6 +35,7 @@ void DrawPanel() {
                     static_cast<unsigned long long>(a.writes));
         ImGui::Text("     crosshair offset yaw %+.2f pitch %+.2f deg%s  flight %.0f ms", a.offset_yaw_deg,
                     a.offset_pitch_deg, a.recoil_hold ? "  (recoil hold)" : "", a.flight_ms);
+        ImGui::Text("     weapon: bullet speed %.1f m/s  damage %.0f", e.weapon_speed, e.weapon_damage);
         ImGui::Text("dropped %llu  pipe %s", static_cast<unsigned long long>(rt.Tel().Dropped(Channel::Render)),
                     rt.Tel().PipeConnected() ? "on" : "off");
         ImGui::End();

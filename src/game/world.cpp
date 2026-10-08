@@ -14,7 +14,7 @@ namespace {
 bool ReadCamera(uintptr_t addr, uintptr_t vt, CameraView& cam);
 
 struct ScanResult {
-    std::vector<uintptr_t> cameras, chars;
+    std::vector<uintptr_t> cameras, chars, weapon_states;
     std::vector<scan::Region> hot;  // regions that held at least one hit
     uint64_t bytes = 0;
     size_t regions = 0, unreadable = 0;
@@ -23,12 +23,13 @@ struct ScanResult {
 
 // Every 8-aligned qword equal to one of the two vtables in the given regions.
 ScanResult ScanVtables(const std::vector<scan::Region>& regions, uintptr_t camera_vt, uintptr_t char_vt,
+                       uintptr_t weapon_state_vt,
                        scan::ScanBuffer& buf, const std::atomic<bool>& stop) {
     ScanResult r;
     const double t0 = Clock::NowMs();
     r.regions = regions.size();
     for (const scan::Region& reg : regions) {
-        const size_t hits_before = r.chars.size() + r.cameras.size();
+        const size_t hits_before = r.chars.size() + r.cameras.size() + r.weapon_states.size();
         for (size_t off = 0; off < reg.size; off += scan::ScanBuffer::kBlock) {
             if (stop.load(std::memory_order_relaxed)) return r;
             const size_t len = (reg.size - off < scan::ScanBuffer::kBlock) ? reg.size - off : scan::ScanBuffer::kBlock;
@@ -41,9 +42,10 @@ ScanResult ScanVtables(const std::vector<scan::Region>& regions, uintptr_t camer
             for (size_t i = 0, n = len / 8; i < n; ++i) {
                 if (q[i] == char_vt) r.chars.push_back(reg.base + off + i * 8);
                 else if (q[i] == camera_vt) r.cameras.push_back(reg.base + off + i * 8);
+                else if (q[i] == weapon_state_vt) r.weapon_states.push_back(reg.base + off + i * 8);
             }
         }
-        if (r.chars.size() + r.cameras.size() > hits_before) r.hot.push_back(reg);
+        if (r.chars.size() + r.cameras.size() + r.weapon_states.size() > hits_before) r.hot.push_back(reg);
     }
     r.ms = Clock::NowMs() - t0;
     return r;
@@ -97,7 +99,7 @@ void World::Run() {
         const double now = Clock::NowMs();
         const bool full = hot.empty() || now - last_full >= 30'000.0 || (rescan_.load() && now - last_full >= 10'000.0);
         ScanResult r = ScanVtables(full ? scan::ReadableRegions(true, &ex, 1) : hot, base_ + kCameraVtableRva,
-                                   base_ + kCharVtableRva, buf, stop_);
+                                   base_ + kCharVtableRva, base_ + kWeaponStateVtableRva, buf, stop_);
         if (stop_.load()) break;
         if (full) last_full = now;
         hot = r.hot;
@@ -115,6 +117,16 @@ void World::Run() {
         {
             AcquireSRWLockExclusive(&lock_);
             camera_ = camera;
+            // the DLL's stacks hold the vtable value too: keep the candidate whose weapon handle resolves
+            weapon_state_ = 0;
+            for (uintptr_t w : r.weapon_states) {
+                uintptr_t h = 0, obj = 0;
+                int32_t cnt = 0;
+                uint64_t vt = 0;
+                if (mem::Read(w + kWeaponStateWeaponOff, h) && mem::Read(h, obj) && mem::Read(h + 0xC, cnt) &&
+                    cnt < 0 && mem::Read(obj, vt) && vt == base_ + kWeaponVtableRva)
+                    weapon_state_ = w;
+            }
             chars_ = std::move(r.chars);
             ++generation_;
             ReleaseSRWLockExclusive(&lock_);
@@ -162,6 +174,31 @@ void World::ReadAim(uintptr_t entity, AimState& aim) const {
     aim.ok = std::isfinite(aim.yaw) && std::isfinite(aim.pitch) && aim.pitch_min < aim.pitch_max;
 }
 
+namespace {
+// Weak handle {object, ..., i32 count at +0xC}: alive when the count is negative.
+uintptr_t Resolve(uintptr_t handle) {
+    uintptr_t obj = 0;
+    int32_t cnt = 0;
+    if (!mem::Read(handle, obj) || !mem::Read(handle + 0xC, cnt) || cnt >= 0) return 0;
+    return obj;
+}
+}  // namespace
+
+void World::ReadWeapon(EspFrame& out) const {
+    out.weapon_speed = out.weapon_damage = 0;
+    if (!r_weapon_state_) return;
+    uintptr_t h = 0, w = 0, dh = 0, d = 0;
+    uint64_t vt = 0;
+    if (!mem::Read(r_weapon_state_ + kWeaponStateWeaponOff, h) || !(w = Resolve(h))) return;
+    if (!mem::Read(w, vt) || vt != base_ + kWeaponVtableRva) return;
+    if (!mem::Read(w + kWeaponDataOff, dh) || !(d = Resolve(dh))) return;
+    if (!mem::Read(d, vt) || vt != base_ + kWeaponDataVtableRva) return;
+    float speed = 0, damage = 0;
+    if (mem::Read(d + kWeaponDataSpeedOff, speed) && std::isfinite(speed) && speed > 10 && speed < 3000)
+        out.weapon_speed = speed;
+    if (mem::Read(d + kWeaponDataDamageOff, damage) && std::isfinite(damage)) out.weapon_damage = damage;
+}
+
 void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) {
     out.items.clear();
     out.camera_ok = false;
@@ -172,6 +209,7 @@ void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) 
         if (generation_ != seen_generation_) {
             seen_generation_ = generation_;
             r_camera_ = camera_;
+            r_weapon_state_ = weapon_state_;
             r_chars_ = chars_;
         }
         ReleaseSRWLockShared(&lock_);
@@ -191,6 +229,7 @@ void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) 
     out.camera_pos = cam.pos;
     out.camera = cam;
     out.aim = AimState{};
+    ReadWeapon(out);
     const float sy = 1.0f / std::tan(cam.fov_v * 0.5f);
 
     const uintptr_t char_vt = base_ + kCharVtableRva, entity_vt = base_ + kEntityVtableRva;
