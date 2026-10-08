@@ -71,6 +71,7 @@ ProjSample g_proj[kProjRing];
 std::atomic<uint64_t> g_proj_written{0};
 uint64_t g_proj_read = 0;  // writer thread
 std::atomic<int> g_tracker_slot{-1};
+std::atomic<uint64_t> g_tracker_calls{0};
 std::atomic<float> g_cam[3], g_fwd[3];
 
 void TrackProjectile(uint64_t obj) {
@@ -103,6 +104,7 @@ LONG CALLBACK Handler(EXCEPTION_POINTERS* ep) {
     if (c->Rip >= g_self_lo && c->Rip < g_self_hi) return EXCEPTION_CONTINUE_EXECUTION;
     const int tracker = g_tracker_slot.load(std::memory_order_relaxed);
     if (tracker >= 0 && (fired & (uint64_t(1) << tracker))) {  // not counted against max_hits
+        g_tracker_calls.fetch_add(1, std::memory_order_relaxed);
         TrackProjectile(c->Rcx);
         return EXCEPTION_CONTINUE_EXECUTION;
     }
@@ -219,6 +221,8 @@ void Configure(const uintptr_t (&addrs)[4], const Mode (&modes)[4], int len, int
 }
 
 void SetTracker(int slot) { g_tracker_slot = slot; }
+uint64_t TrackerCalls() { return g_tracker_calls.load(std::memory_order_relaxed); }
+uint64_t TrackerSamples() { return g_proj_written.load(std::memory_order_relaxed); }
 
 void SetCamera(const float (&pos)[3], const float (&forward)[3]) {
     for (int i = 0; i < 3; ++i) {

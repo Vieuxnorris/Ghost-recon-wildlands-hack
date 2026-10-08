@@ -99,3 +99,22 @@ TEST_CASE("Expired or cleared entries are queried again") {
     CHECK(mem::ThreadCacheStats().entries == 1);
     VirtualFree(p, 0, MEM_RELEASE);
 }
+
+TEST_CASE("ReadPieces copies the fields of one object, and refuses an unreadable span or a stray piece") {
+    mem::ClearThreadCache();
+    uint8_t* p = Alloc(2);
+    *reinterpret_cast<uint64_t*>(p + 0x10) = 7;
+    *reinterpret_cast<uint32_t*>(p + 0x270) = 9;
+    uint64_t a = 0;
+    uint32_t b = 0;
+    const mem::Piece both[] = {{0x10, &a, 8}, {0x270, &b, 4}};
+    REQUIRE(mem::ReadPieces(U(p), 0x278, both, 2));
+    CHECK(a == 7);
+    CHECK(b == 9);
+    const mem::Piece stray[] = {{0x276, &b, 4}};
+    CHECK_FALSE(mem::ReadPieces(U(p), 0x278, stray, 1));
+    DWORD old = 0;
+    REQUIRE(VirtualProtect(p + kPage, kPage, PAGE_NOACCESS, &old));
+    CHECK_FALSE(mem::ReadPieces(U(p + kPage - 0x100), 0x278, both, 2));
+    VirtualFree(p, 0, MEM_RELEASE);
+}

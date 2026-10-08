@@ -7,7 +7,8 @@
 // Evidence: ghost-recon-wildlands-re/2026-10-08/camera-findings.md sections 3d-4d.
 namespace grw::game {
 
-// Camera object: single instance, found by its vtable.
+// Camera object: single instance, pointed to by the image (camera-findings.md section 8), else found by its vtable.
+inline constexpr uintptr_t kCameraPtrRva = 0x4BBB330;
 inline constexpr uintptr_t kCameraVtableRva = 0x39B5820;
 inline constexpr size_t kCameraFovOff = 0x180;     // f32, vertical FOV in radians (changes when aiming)
 inline constexpr size_t kCameraMatrixOff = 0x190;  // 4x4 f32: rows right, forward, up, position (world Z-up)
@@ -22,6 +23,22 @@ inline constexpr size_t kCharReadSize = kCharPoseOff + 8;
 // Entity "O" = [A + 0x10].
 inline constexpr uintptr_t kEntityVtableRva = 0x39C6DF8;
 inline constexpr size_t kEntityFlagsOff = 0xD0;  // u32: category bits, see Classify()
+// [O + 0x78] = the entity's components: the character object A is one of the qwords at +0xB0..+0x128.
+inline constexpr size_t kEntityComponentsOff = 0x78;
+inline constexpr size_t kComponentsSearch = 0x200;
+
+// The world's list of live entities (camera-findings.md section 8): world = [base + 0x4B90298],
+// list = [world + 0xE0], slots of 0x18 bytes {entity O, component, flags} at [list + 0xE0], u16 slot count at
+// list + 0xE8. Every active character (player, squad, NPCs) is in it, often in two slots; the pool of
+// inactive ones is not.
+inline constexpr uintptr_t kWorldRootRva = 0x4B90298;
+inline constexpr uintptr_t kWorldVtableRva = 0x39CBB90;
+inline constexpr size_t kWorldEntityListOff = 0xE0;
+inline constexpr uintptr_t kEntityListVtableRva = 0x39C0D28;
+inline constexpr size_t kEntityListDataOff = 0xE0;
+inline constexpr size_t kEntityListCountOff = 0xE8;
+inline constexpr size_t kEntityListStride = 0x18;
+inline constexpr size_t kEntityListMaxSlots = 4096;
 
 // Pose: [[A + 0x270] + 0x178] = model-space bones {pos xyz, 0, quat xyzw}, +y forward, +z up.
 inline constexpr size_t kPoseBonesOff = 0x178;
@@ -48,6 +65,10 @@ inline constexpr float kAimYawToHeading = 1.5707963f;  // heading = accumulator 
 // at +0x48 a weak handle to the weapon logic object W; [W+0x118] = the weapon's design data (with its parts).
 inline constexpr uintptr_t kWeaponStateVtableRva = 0x3B87F20;
 inline constexpr size_t kWeaponStateWeaponOff = 0x48;
+// From the player's entity: [[[O + 0x78] + 0x180] + 0x420] = the weapon state (section 8).
+inline constexpr size_t kComponentsWeaponHolderOff = 0x180;
+inline constexpr uintptr_t kWeaponHolderVtableRva = 0x3B83E60;
+inline constexpr size_t kWeaponHolderStateOff = 0x420;
 inline constexpr uintptr_t kWeaponVtableRva = 0x3905C18;
 inline constexpr size_t kWeaponDataOff = 0x118;
 inline constexpr uintptr_t kWeaponDataVtableRva = 0x38C1250;

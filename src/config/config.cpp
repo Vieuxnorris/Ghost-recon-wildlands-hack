@@ -63,12 +63,14 @@ bool Assign(Config& c, std::string_view key, std::string_view v) {
     if (key == "hwbp_max_hits") return ParseInt(v, c.hwbp_max_hits) && c.hwbp_max_hits > 0;
     if (key == "hwbp_read") return ParseInt(v, c.hwbp_read) && c.hwbp_read >= 0 && c.hwbp_read <= 2;
     if (key == "bullet_probe") return ParseInt(v, c.bullet_probe);
-    if (key == "proj_track") return ParseInt(v, c.proj_track);
+    if (key == "proj_track") return ParseInt(v, c.proj_track) && c.proj_track >= 0 && c.proj_track <= 2;
     if (key == "esp_max_distance_m") return ParseFloat(v, c.esp_max_distance_m);
     if (key == "esp_enabled") return ParseInt(v, c.esp_enabled);
     if (key == "esp_key") return ParseInt(v, c.esp_key);
     if (key == "esp_civilians") return ParseInt(v, c.esp_civilians);
     if (key == "esp_dead") return ParseInt(v, c.esp_dead);
+    if (key == "esp_list_interval_ms")
+        return ParseInt(v, c.esp_list_interval_ms) && c.esp_list_interval_ms >= 20 && c.esp_list_interval_ms <= 5000;
     if (key == "esp_scan_interval_ms") return ParseInt(v, c.esp_scan_interval_ms) && c.esp_scan_interval_ms >= 250;
     if (key == "overlay_mode") return ParseInt(v, c.overlay_mode) && c.overlay_mode >= 0 && c.overlay_mode <= 2;
     if (key == "hook_method") return ParseInt(v, c.hook_method) && c.hook_method >= 0 && c.hook_method <= 3;
@@ -126,8 +128,12 @@ std::string DefaultConfigText() {
       << "esp_key = 0x" << std::hex << d.esp_key << std::dec << "\n"
       << "esp_civilians = " << d.esp_civilians << "\n"
       << "esp_dead = " << d.esp_dead << "\n"
-      << "# how often the character list is refreshed (ms, >= 250); a full memory scan runs every 30 s\n"
+      << "# how often the game's entity list is read (ms, 20-5000): a new character appears within this\n"
+      << "esp_list_interval_ms = " << d.esp_list_interval_ms << "\n"
+      << "# fallback when the list can't be read: hot-region rescans (ms, >= 250), full memory scans every 30 s\n"
       << "esp_scan_interval_ms = " << d.esp_scan_interval_ms << "\n"
+      << "# learn bullet paths from the player's shots: 0 off, 1 always, 2 only while useful\n"
+      << "proj_track = " << d.proj_track << "\n"
       << "# 0 = hooks only, 1 = ImGui frame without rendering, 2 = full overlay\n"
       << "overlay_mode = " << d.overlay_mode << "\n"
       << "# read at injection: 0 = inline patch (MinHook), 1 = dxgi vtable slots,\n"

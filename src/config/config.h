@@ -29,14 +29,17 @@ struct Config {
     // Research: find each fired bullet in memory and record its flight (needs the execute breakpoint on the
     // fire function, base + 0x1471F8E0).
     int bullet_probe = 0;
-    // Research: sample each step of the player's projectiles (instruction breakpoint on DR1).
-    int proj_track = 0;
-    float esp_max_distance_m = 300.0f;
+    // Learn the bullet paths from the player's projectiles (instruction breakpoint on DR1, one exception per
+    // simulation step of every projectile in the game): 0 = off, 1 = always, 2 = only while learning is useful
+    // (weapon in hand not fired yet since injection, no learned path, or aiming beyond the learned range).
+    int proj_track = 2;
+    float esp_max_distance_m = 600.0f;
     int esp_enabled = 1;
     int esp_key = 0x75;  // VK_F6 toggles the ESP
     int esp_civilians = 1;
     int esp_dead = 1;
-    int esp_scan_interval_ms = 1000;  // hot-region rescans; full scans every 30 s
+    int esp_list_interval_ms = 100;   // reads of the game's entity list (new characters appear within this)
+    int esp_scan_interval_ms = 1000;  // fallback only: hot-region rescans; full scans every 30 s
     int overlay_mode = 2;  // 0 = hooks only, 1 = ImGui frame without rendering, 2 = full overlay
     // Read at injection: 0 = inline patch (MinHook), 1 = dxgi vtable slots.
     // Diagnostics: 2 = throwaway swap chain only, no hooks; 3 = nothing at all (threads only).

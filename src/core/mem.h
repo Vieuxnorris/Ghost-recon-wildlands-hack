@@ -10,6 +10,16 @@ bool Read(uintptr_t addr, void* dst, size_t size);
 bool Write(uintptr_t addr, const void* src, size_t size);
 
 template <class T> bool Read(uintptr_t addr, T& out) { return Read(addr, &out, sizeof(T)); }
+
+// Several fields of one object: one check for [addr, addr + span), then only the pieces are copied (fewer
+// cache lines than the whole object). False, with the destinations partly written, when unreadable or when
+// a piece lies outside the span.
+struct Piece {
+    size_t off;
+    void* dst;
+    size_t size;
+};
+bool ReadPieces(uintptr_t addr, size_t span, const Piece* pieces, size_t n);
 template <class T> bool Write(uintptr_t addr, const T& value) { return Write(addr, &value, sizeof(T)); }
 
 struct CacheStats {

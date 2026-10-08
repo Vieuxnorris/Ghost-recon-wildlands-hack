@@ -27,8 +27,9 @@ void DrawPanel() {
         if (!rt.EspOn()) ImGui::TextUnformatted("esp off (F6)");
         else if (!e.camera_ok) ImGui::TextUnformatted("esp: camera not found yet");
         else
-            ImGui::Text("esp: fov %.1f  chars %u known, %u in range, %u on screen, %u heads", e.fov_deg, e.known,
-                        e.active, e.on_screen, e.heads);
+            ImGui::Text("esp: fov %.1f  chars %u %s, %u in range, %u on screen, %u heads", e.fov_deg, e.known,
+                        e.from_list ? "in the game's list" : "from memory scans (list not found)", e.active,
+                        e.on_screen, e.heads);
         const Aimbot::Status& a = rt.AimStatus();
         ImGui::Text("aim: accumulator %s  key %s  target %s  err %.2f deg  writes %llu", a.accumulator ? "ok" : "missing",
                     a.key ? "held" : "-", a.target ? "locked" : "-", a.error_deg,
@@ -41,6 +42,10 @@ void DrawPanel() {
                         a.bullet.V, a.bullet.first_segment, a.drop_m, a.trajectory == 2 ? " (extrapolated)" : "");
         else
             ImGui::Text("     path not learned for this weapon: fire one shot far away (or slightly into the sky)");
+        if (rt.TrackerArmed())
+            ImGui::Text("     bullet tracking on (learning): %.0f exceptions/s", rt.TrackerCallsPerS());
+        else
+            ImGui::TextUnformatted("     bullet tracking off");
         ImGui::Text("dropped %llu  pipe %s", static_cast<unsigned long long>(rt.Tel().Dropped(Channel::Render)),
                     rt.Tel().PipeConnected() ? "on" : "off");
         ImGui::End();

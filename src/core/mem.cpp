@@ -104,7 +104,29 @@ bool GuardedCopy(void* dst, const void* src, size_t n) {
     }
 }
 
+bool GuardedPieces(uintptr_t addr, const Piece* pieces, size_t n) {
+    __try {
+        for (size_t i = 0; i < n; ++i)
+            std::memcpy(pieces[i].dst, reinterpret_cast<const void*>(addr + pieces[i].off), pieces[i].size);
+        return true;
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ||
+                        GetExceptionCode() == STATUS_GUARD_PAGE_VIOLATION
+                    ? EXCEPTION_EXECUTE_HANDLER
+                    : EXCEPTION_CONTINUE_SEARCH) {
+        return false;
+    }
+}
+
 }  // namespace
+
+bool ReadPieces(uintptr_t addr, size_t span, const Piece* pieces, size_t n) {
+    for (size_t i = 0; i < n; ++i)
+        if (pieces[i].off > span || pieces[i].size > span - pieces[i].off) return false;
+    if (!RangeOk(addr, span, false)) return false;
+    if (GuardedPieces(addr, pieces, n)) return true;
+    Invalidate(addr, span);
+    return false;
+}
 
 bool Read(uintptr_t addr, void* dst, size_t size) {
     if (!RangeOk(addr, size, false)) return false;

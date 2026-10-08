@@ -44,6 +44,10 @@ void Drain(Telemetry& tel, HitFn on_hit = nullptr, void* ctx = nullptr, ProjFn o
 // once per simulation step with the projectile in rcx) are not recorded as hits: the projectile is sampled
 // when it was fired by the player (SetCamera), and Drain pushes "proj" lines. -1 = off. Writer thread.
 void SetTracker(int slot);
+// Since injection: exceptions taken by the tracker (one per simulation step of any projectile in the game while
+// it is armed: its cost) and steps of the player's projectiles kept.
+uint64_t TrackerCalls();
+uint64_t TrackerSamples();
 // Render thread: the camera position and forward axis, to keep the player's own projectiles (fired within
 // 8 m of the camera, less than 5 degrees from where it looks).
 void SetCamera(const float (&pos)[3], const float (&forward)[3]);

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 #include "common/shared_control.h"
 #include "aim/trajectory.h"
 #include "config/config.h"
@@ -37,9 +38,13 @@ public:
     const game::EspFrame& Esp() const { return esp_; }  // render thread only
     bool EspOn() const { return esp_on_.load(std::memory_order_relaxed); }
     const Aimbot::Status& AimStatus() const { return aim_.Last(); }  // render thread only
+    bool TrackerArmed() const { return tracker_armed_.load(std::memory_order_relaxed); }
+    float TrackerCallsPerS() const { return tracker_calls_per_s_.load(std::memory_order_relaxed); }
 
 private:
     void Tick();
+    bool LearningWanted() const;
+    void PushTrackerStats(bool armed);
     void SaveTrajectories();
     void PushFrameStats();
     void PushEspStats();
@@ -59,6 +64,15 @@ private:
     bullet::Probe probe_;
     std::atomic<float> cam_x_{0}, cam_y_{0}, cam_z_{0};  // render thread -> writer thread (player's shots)
     std::atomic<float> weapon_speed_{0}, weapon_damage_{0};
+    std::atomic<uint64_t> weapon_id_{0};
+    std::atomic<double> aim_beyond_ms_{-1e18};  // last time the aim extrapolated past the learned path
+    // Writer thread: the projectile tracker (proj_track = 2) and the weapons whose link was confirmed by a shot.
+    std::vector<uint64_t> confirmed_weapons_;
+    double track_until_ms_ = 0;
+    std::atomic<bool> tracker_armed_{false};
+    std::atomic<float> tracker_calls_per_s_{0};
+    double tracker_window_ms_ = 0;
+    uint64_t tracker_calls0_ = 0, tracker_samples0_ = 0;
     // Learned bullet paths (writer thread adds the player's projectile steps, render thread aims with them).
     TrajectoryBook book_;
     mutable SRWLOCK book_lock_ = SRWLOCK_INIT;

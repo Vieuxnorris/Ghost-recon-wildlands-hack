@@ -6,6 +6,7 @@
 #include <vector>
 #include "core/stats.h"
 #include "game/model.h"
+#include "game/registry.h"
 #include "math/vec.h"
 
 namespace grw {
@@ -29,6 +30,8 @@ struct EspItem {
 struct EspOptions {
     float width = 0, height = 0;
     float max_dist = 300;
+    float heads_within_m = 200;  // bones read for every character this near...
+    float head_cone_deg = 15;    // ... and, farther, within this angle of the view axis
     bool civilians = true;
     bool dead = true;
 };
@@ -48,25 +51,35 @@ struct EspFrame {
     AimState aim;
     float weapon_speed = 0;   // m/s from the active weapon's data, 0 = unknown
     float weapon_damage = 0;
-    uint32_t known = 0;     // character objects from the last scan
+    uint64_t weapon_id = 0;   // the weapon objects in hand (changes on a switch), 0 = unknown
+    bool from_list = false;   // characters from the game's entity list (else from the fallback scan)
+    uint32_t known = 0;     // character objects from the list (or the last scan)
     uint32_t active = 0;    // valid, not at the origin, within range
     uint32_t on_screen = 0;
     uint32_t heads = 0;     // pose read and head found
     std::vector<EspItem> items;
 };
 
-// Finds the camera and the character objects by their vtables in this process's writable memory, on its
-// own thread, every interval_ms (and at once after the camera is lost). BuildFrame reads them on the render
-// thread: entity flags for every character in range, bones only for those that survive screen culling.
+// Finds the characters through the game's entity list (EntityRegistry) on its own thread, every
+// list_interval_ms; the camera through the image's pointer (render thread) and the weapon state through the
+// player's entity. Memory scans for their vtables are only the fallback while one of these chains fails
+// (another game build, loading): hot regions every scan_interval_ms, all writable memory every 30 s.
+// BuildFrame reads them on the render thread: entity flags for every character in range, bones only for
+// those that survive screen culling.
 class World {
 public:
-    void Start(Telemetry* tel, DWORD interval_ms);
+    void Start(Telemetry* tel, DWORD scan_interval_ms, DWORD list_interval_ms);
     void Stop();
-    void SetInterval(DWORD ms) { interval_ms_.store(ms, std::memory_order_relaxed); }
+    void SetIntervals(DWORD scan_ms, DWORD list_ms) {
+        interval_ms_.store(scan_ms, std::memory_order_relaxed);
+        list_interval_ms_.store(list_ms, std::memory_order_relaxed);
+    }
     void BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats);
 
 private:
+    struct ScanState;
     void Run();
+    void Scan(ScanState& s, bool camera_missing);
     void ReadAim(uintptr_t entity, AimState& aim) const;
     void ReadWeapon(EspFrame& out) const;
 
@@ -74,20 +87,24 @@ private:
     uintptr_t base_ = 0;
     std::thread thread_;
     std::atomic<bool> stop_{false};
-    std::atomic<bool> rescan_{false};
+    std::atomic<bool> camera_missing_{false};  // render thread: neither the image's pointer nor the scan's camera reads
     std::atomic<DWORD> interval_ms_{1000};
+    std::atomic<DWORD> list_interval_ms_{100};
     HANDLE wake_ = nullptr;
+    EntityRegistry registry_;  // world thread
 
-    SRWLOCK lock_ = SRWLOCK_INIT;  // guards the published scan result
-    uintptr_t camera_ = 0;
+    SRWLOCK lock_ = SRWLOCK_INIT;  // guards the published result
+    uintptr_t camera_ = 0;         // from the fallback scan
     uintptr_t weapon_state_ = 0;
     std::vector<uintptr_t> chars_;
+    bool from_list_ = false;
     uint64_t generation_ = 0;
 
     // render thread copy
     uint64_t seen_generation_ = ~0ull;
     uintptr_t r_camera_ = 0;
     uintptr_t r_weapon_state_ = 0;
+    bool r_from_list_ = false;
     std::vector<uintptr_t> r_chars_;
     std::vector<float> bones_;
 };

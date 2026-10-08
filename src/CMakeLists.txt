@@ -18,6 +18,7 @@ add_library(grw_core STATIC
   scan/regions.cpp
   scan/ray_filter.cpp
   game/model.cpp
+  game/registry.cpp
   game/world.cpp)
 target_include_directories(grw_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
