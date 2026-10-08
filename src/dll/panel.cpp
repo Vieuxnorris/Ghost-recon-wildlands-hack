@@ -1,10 +1,12 @@
 #include "dll/panel.h"
 #include <imgui.h>
+#include "dll/esp.h"
 #include "dll/runtime.h"
 
 namespace grw {
 
 void DrawPanel() {
+    DrawEsp();
     Runtime& rt = Rt();
     const bool menu = rt.MenuOpen();
 
@@ -21,6 +23,12 @@ void DrawPanel() {
             if (s[i].n == 0) continue;
             ImGui::Text("%-8s p50 %.3f  p99 %.3f ms", StageName(Stage(i)), s[i].p50_cpu, s[i].p99_cpu);
         }
+        const game::EspFrame& e = rt.Esp();
+        if (!rt.EspOn()) ImGui::TextUnformatted("esp off (F6)");
+        else if (!e.camera_ok) ImGui::TextUnformatted("esp: camera not found yet");
+        else
+            ImGui::Text("esp: fov %.1f  chars %u known, %u in range, %u on screen, %u heads", e.fov_deg, e.known,
+                        e.active, e.on_screen, e.heads);
         ImGui::Text("dropped %llu  pipe %s", static_cast<unsigned long long>(rt.Tel().Dropped(Channel::Render)),
                     rt.Tel().PipeConnected() ? "on" : "off");
         ImGui::End();

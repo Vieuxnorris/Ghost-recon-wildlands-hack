@@ -7,6 +7,7 @@
 #include "common/shared_control.h"
 #include "config/config.h"
 #include "core/stats.h"
+#include "game/world.h"
 #include "telemetry/telemetry.h"
 
 namespace grw {
@@ -28,10 +29,15 @@ public:
     bool PanelOpen() const { return panel_open_.load(std::memory_order_relaxed); }
     uint64_t Frame() const { return frame_.load(std::memory_order_relaxed); }
     const Percentiles* LastStats() const { return last_stats_; }  // render thread only
+    // Render thread, inside the ImGui frame: reads the game and refreshes Esp().
+    void UpdateEsp(float width, float height);
+    const game::EspFrame& Esp() const { return esp_; }  // render thread only
+    bool EspOn() const { return esp_on_.load(std::memory_order_relaxed); }
 
 private:
     void Tick();
     void PushFrameStats();
+    void PushEspStats();
 
     std::unique_ptr<Telemetry> tel_;
     std::unique_ptr<ConfigStore> config_;
@@ -41,7 +47,11 @@ private:
     std::atomic<bool> panel_open_{true};
     std::atomic<uint64_t> frame_{0};
     std::atomic<int> overlay_mode_{2};  // copied from the config on the writer thread
-    bool key_down_[3] = {};
+    bool key_down_[4] = {};
+    game::World world_;
+    game::EspFrame esp_;
+    std::atomic<bool> esp_on_{true};
+    double esp_window_ms_ = 0;
     double window_start_ms_ = 0;
     uint64_t window_frames_ = 0;
     double last_frame_ms_ = 0;

@@ -40,6 +40,11 @@ bool Assign(Config& c, std::string_view key, std::string_view v) {
     if (key == "aim_deadzone_frac") return ParseFloat(v, c.aim_deadzone_frac);
     if (key == "aim_hidden_ms") return ParseFloat(v, c.aim_hidden_ms);
     if (key == "esp_max_distance_m") return ParseFloat(v, c.esp_max_distance_m);
+    if (key == "esp_enabled") return ParseInt(v, c.esp_enabled);
+    if (key == "esp_key") return ParseInt(v, c.esp_key);
+    if (key == "esp_civilians") return ParseInt(v, c.esp_civilians);
+    if (key == "esp_dead") return ParseInt(v, c.esp_dead);
+    if (key == "esp_scan_interval_ms") return ParseInt(v, c.esp_scan_interval_ms) && c.esp_scan_interval_ms >= 250;
     if (key == "overlay_mode") return ParseInt(v, c.overlay_mode) && c.overlay_mode >= 0 && c.overlay_mode <= 2;
     if (key == "hook_method") return ParseInt(v, c.hook_method) && c.hook_method >= 0 && c.hook_method <= 3;
     return false;
@@ -85,6 +90,12 @@ std::string DefaultConfigText() {
       << "aim_deadzone_frac = " << d.aim_deadzone_frac << "\n"
       << "aim_hidden_ms = " << d.aim_hidden_ms << "\n"
       << "esp_max_distance_m = " << d.esp_max_distance_m << "\n"
+      << "esp_enabled = " << d.esp_enabled << "\n"
+      << "esp_key = 0x" << std::hex << d.esp_key << std::dec << "\n"
+      << "esp_civilians = " << d.esp_civilians << "\n"
+      << "esp_dead = " << d.esp_dead << "\n"
+      << "# how often the character list is refreshed (ms, >= 250); a full memory scan runs every 30 s\n"
+      << "esp_scan_interval_ms = " << d.esp_scan_interval_ms << "\n"
       << "# 0 = hooks only, 1 = ImGui frame without rendering, 2 = full overlay\n"
       << "overlay_mode = " << d.overlay_mode << "\n"
       << "# read at injection: 0 = inline patch (MinHook), 1 = dxgi vtable slots,\n"

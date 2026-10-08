@@ -23,11 +23,15 @@ bool Runtime::Start(const std::wstring& base_dir, SharedControl* control) {
     opt.dir = base_dir + L"\\telemetry";
     opt.on_tick = [this] { Tick(); };
     if (!tel_->Start(opt)) return false;
-    window_start_ms_ = Clock::NowMs();
+    window_start_ms_ = esp_window_ms_ = Clock::NowMs();
+    const Config c = config_->Snapshot();
+    esp_on_ = c.esp_enabled != 0;
+    world_.Start(tel_.get(), DWORD(c.esp_scan_interval_ms));
     return true;
 }
 
 void Runtime::Stop() {
+    world_.Stop();
     if (tel_) tel_->Stop();
 }
 
@@ -71,6 +75,55 @@ void Runtime::OnResize(IDXGISwapChain* sc, bool before) {
 
 void Runtime::OnPresented(double cpu_ms, double wall_ms) { stats_->Add(Stage::Chain, float(cpu_ms), float(wall_ms)); }
 
+void Runtime::UpdateEsp(float width, float height) {
+    if (!esp_on_.load(std::memory_order_relaxed)) {
+        esp_.items.clear();
+        return;
+    }
+    const Config c = config_->Snapshot();
+    game::EspOptions opt;
+    opt.width = width;
+    opt.height = height;
+    opt.max_dist = c.esp_max_distance_m;
+    opt.civilians = c.esp_civilians != 0;
+    opt.dead = c.esp_dead != 0;
+    world_.BuildFrame(opt, esp_, *stats_);
+    if (Clock::NowMs() - esp_window_ms_ >= 1000.0) PushEspStats();
+}
+
+void Runtime::PushEspStats() {
+    esp_window_ms_ = Clock::NowMs();
+    Line l;
+    JsonLine j(l, "esp", tel_->SinceStartMs(), Frame());
+    j.Bool("camera", esp_.camera_ok)
+        .Num("fov", esp_.fov_deg)
+        .Num("cx", esp_.camera_pos.x)
+        .Num("cy", esp_.camera_pos.y)
+        .Num("cz", esp_.camera_pos.z)
+        .Int("known", esp_.known)
+        .Int("active", esp_.active)
+        .Int("on_screen", esp_.on_screen)
+        .Int("heads", esp_.heads);
+    // the three nearest drawn characters: category, distance, head marker
+    const game::EspItem* closest[3] = {};
+    for (const game::EspItem& it : esp_.items)
+        for (int k = 0; k < 3; ++k)
+            if (!closest[k] || it.dist < closest[k]->dist) {
+                for (int m = 2; m > k; --m) closest[m] = closest[m - 1];
+                closest[k] = &it;
+                break;
+            }
+    char key[16], val[48];
+    for (int k = 0; k < 3 && closest[k]; ++k) {
+        std::snprintf(key, sizeof key, "n%d", k);
+        std::snprintf(val, sizeof val, "%s %.1fm 0x%x %s", game::CategoryName(closest[k]->cat), closest[k]->dist,
+                      closest[k]->flags, closest[k]->head_radius > 0 ? "head" : "nohead");
+        j.Str(key, val);
+    }
+    j.Finish();
+    tel_->Push(Channel::Render, l);
+}
+
 void Runtime::PushFrameStats() {
     stats_->Flush(last_stats_);
     Line l;
@@ -110,12 +163,14 @@ void Runtime::Tick() {
 
     const Config c = config_->Snapshot();
     overlay_mode_.store(c.overlay_mode, std::memory_order_relaxed);
-    const int keys[3] = {c.menu_key, c.panel_key, c.unload_key};
-    for (int i = 0; i < 3; ++i) {
+    world_.SetInterval(DWORD(c.esp_scan_interval_ms));
+    const int keys[4] = {c.menu_key, c.panel_key, c.unload_key, c.esp_key};
+    for (int i = 0; i < 4; ++i) {
         const bool down = (GetAsyncKeyState(keys[i]) & 0x8000) != 0;
         if (down && !key_down_[i]) {
             if (i == 0) menu_open_ = !menu_open_;
             else if (i == 1) panel_open_ = !panel_open_;
+            else if (i == 3) esp_on_ = !esp_on_;
             else InterlockedExchange(&control_->unload_request, 1);
         }
         key_down_[i] = down;

@@ -13,7 +13,9 @@ add_library(grw_core STATIC
   aim/target.cpp
   scan/matrix_detect.cpp
   scan/candidates.cpp
-  scan/regions.cpp)
+  scan/regions.cpp
+  game/model.cpp
+  game/world.cpp)
 target_include_directories(grw_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(testhost testhost/main.cpp)
@@ -24,7 +26,7 @@ add_test(NAME testhost_present1 COMMAND testhost --present1 --exit-after 1000)
 
 find_package(minhook CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
-add_library(grw SHARED dll/dllmain.cpp dll/hooks.cpp dll/runtime.cpp dll/overlay.cpp dll/panel.cpp)
+add_library(grw SHARED dll/dllmain.cpp dll/hooks.cpp dll/runtime.cpp dll/overlay.cpp dll/panel.cpp dll/esp.cpp)
 target_link_libraries(grw PRIVATE grw_core minhook::minhook imgui::imgui d3d11 dxgi)
 
 add_executable(probe probe/main.cpp)

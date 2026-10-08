@@ -16,6 +16,11 @@ struct Config {
     float aim_deadzone_frac = 0.3f;
     float aim_hidden_ms = 150.0f;
     float esp_max_distance_m = 300.0f;
+    int esp_enabled = 1;
+    int esp_key = 0x75;  // VK_F6 toggles the ESP
+    int esp_civilians = 1;
+    int esp_dead = 1;
+    int esp_scan_interval_ms = 1000;  // hot-region rescans; full scans every 30 s
     int overlay_mode = 2;  // 0 = hooks only, 1 = ImGui frame without rendering, 2 = full overlay
     // Read at injection: 0 = inline patch (MinHook), 1 = dxgi vtable slots.
     // Diagnostics: 2 = throwaway swap chain only, no hooks; 3 = nothing at all (threads only).
