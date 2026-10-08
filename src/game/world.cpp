@@ -146,6 +146,22 @@ void World::Run() {
     }
 }
 
+void World::ReadAim(uintptr_t entity, AimState& aim) const {
+    uintptr_t holder = 0, comp = 0;
+    if (!mem::Read(entity + kEntityAimHolderOff, holder) || !mem::Read(holder + kAimHolderCompOff, comp)) return;
+    uint8_t d[kAimPitchMaxOff + 4];
+    if (!mem::Read(comp, d, sizeof d)) return;
+    uint64_t vt;
+    std::memcpy(&vt, d, 8);
+    if (vt != base_ + kAimCompVtableRva) return;
+    std::memcpy(&aim.yaw, d + kAimYawOff, 4);
+    std::memcpy(&aim.pitch, d + kAimPitchOff, 4);
+    std::memcpy(&aim.pitch_min, d + kAimPitchMinOff, 4);
+    std::memcpy(&aim.pitch_max, d + kAimPitchMaxOff, 4);
+    aim.comp = comp;
+    aim.ok = std::isfinite(aim.yaw) && std::isfinite(aim.pitch) && aim.pitch_min < aim.pitch_max;
+}
+
 void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) {
     out.items.clear();
     out.camera_ok = false;
@@ -173,6 +189,8 @@ void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) 
     out.camera_ok = true;
     out.fov_deg = cam.fov_v * 57.29578f;
     out.camera_pos = cam.pos;
+    out.camera = cam;
+    out.aim = AimState{};
     const float sy = 1.0f / std::tan(cam.fov_v * 0.5f);
 
     const uintptr_t char_vt = base_ + kCharVtableRva, entity_vt = base_ + kEntityVtableRva;
@@ -206,7 +224,10 @@ void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) 
             }
         }
         const Category cat = flags_ok ? Classify(flags) : Category::Unknown;
-        if (cat == Category::Player) continue;
+        if (cat == Category::Player) {
+            ReadAim(owner, out.aim);
+            continue;
+        }
         if (cat == Category::Civilian && !opt.civilians) continue;
         if (cat == Category::Dead && !opt.dead) continue;
         ++out.active;
@@ -218,6 +239,7 @@ void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) 
         ++out.on_screen;
 
         EspItem it;
+        it.addr = a;
         it.dist = dist;
         it.flags = flags;
         it.cat = cat;
@@ -234,7 +256,8 @@ void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) 
             if (HeadFromBones(bones_.data(), kBonesRead, head_m, crown_m)) {
                 Vec2 sh;
                 float hd;
-                if (Project(cam, m.ToWorld(head_m), opt.width, opt.height, sh, hd)) {
+                it.head_world = m.ToWorld(head_m);
+                if (Project(cam, it.head_world, opt.width, opt.height, sh, hd)) {
                     it.head = sh;
                     it.head_radius = std::fmax(2.0f, 0.11f * sy * opt.height * 0.5f / hd);
                     ++out.heads;

@@ -34,11 +34,16 @@ bool Assign(Config& c, std::string_view key, std::string_view v) {
     if (key == "panel_key") return ParseInt(v, c.panel_key);
     if (key == "unload_key") return ParseInt(v, c.unload_key);
     if (key == "aim_key") return ParseInt(v, c.aim_key);
+    if (key == "aim_enabled") return ParseInt(v, c.aim_enabled);
     if (key == "aim_tau_ms") return ParseFloat(v, c.aim_tau_ms);
     if (key == "aim_cone_deg") return ParseFloat(v, c.aim_cone_deg);
     if (key == "aim_max_speed_deg_s") return ParseFloat(v, c.aim_max_speed_deg_s);
     if (key == "aim_deadzone_frac") return ParseFloat(v, c.aim_deadzone_frac);
     if (key == "aim_hidden_ms") return ParseFloat(v, c.aim_hidden_ms);
+    if (key == "aim_bullet_speed") return ParseFloat(v, c.aim_bullet_speed) && c.aim_bullet_speed >= 0.0f;
+    if (key == "aim_gravity") return ParseFloat(v, c.aim_gravity);
+    if (key == "aim_zero_m") return ParseFloat(v, c.aim_zero_m) && c.aim_zero_m >= 0.0f;
+    if (key == "aim_lead") return ParseInt(v, c.aim_lead);
     if (key == "esp_max_distance_m") return ParseFloat(v, c.esp_max_distance_m);
     if (key == "esp_enabled") return ParseInt(v, c.esp_enabled);
     if (key == "esp_key") return ParseInt(v, c.esp_key);
@@ -84,11 +89,17 @@ std::string DefaultConfigText() {
       << "panel_key = 0x" << d.panel_key << "\n"
       << "unload_key = 0x" << d.unload_key << "\n"
       << "aim_key = 0x" << d.aim_key << std::dec << "\n"
+      << "aim_enabled = " << d.aim_enabled << "\n"
       << "aim_tau_ms = " << d.aim_tau_ms << "\n"
       << "aim_cone_deg = " << d.aim_cone_deg << "\n"
       << "aim_max_speed_deg_s = " << d.aim_max_speed_deg_s << "\n"
       << "aim_deadzone_frac = " << d.aim_deadzone_frac << "\n"
       << "aim_hidden_ms = " << d.aim_hidden_ms << "\n"
+      << "# ballistics: bullet speed m/s (0 = off), gravity m/s2, sight zero distance m, lead moving targets\n"
+      << "aim_bullet_speed = " << d.aim_bullet_speed << "\n"
+      << "aim_gravity = " << d.aim_gravity << "\n"
+      << "aim_zero_m = " << d.aim_zero_m << "\n"
+      << "aim_lead = " << d.aim_lead << "\n"
       << "esp_max_distance_m = " << d.esp_max_distance_m << "\n"
       << "esp_enabled = " << d.esp_enabled << "\n"
       << "esp_key = 0x" << std::hex << d.esp_key << std::dec << "\n"

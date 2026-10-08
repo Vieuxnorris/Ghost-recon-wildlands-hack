@@ -15,9 +15,11 @@ class Telemetry;
 namespace grw::game {
 
 struct EspItem {
+    uintptr_t addr = 0;     // character object: stable identity while it lives
     Vec2 box_min, box_max;  // screen pixels, feet to crown
     Vec2 head;
     float head_radius = 0;  // pixels, 0 = no pose (no head marker)
+    Vec3 head_world;        // valid when head_radius > 0
     float dist = 0;         // metres from the camera
     uint32_t flags = 0;
     Category cat = Category::Unknown;
@@ -31,10 +33,19 @@ struct EspOptions {
     bool dead = true;
 };
 
+// The player's view-angle accumulator, read every frame.
+struct AimState {
+    bool ok = false;
+    uintptr_t comp = 0;  // aim component address
+    float yaw = 0, pitch = 0, pitch_min = 0, pitch_max = 0;  // radians, as stored
+};
+
 struct EspFrame {
     bool camera_ok = false;
     float fov_deg = 0;
     Vec3 camera_pos;
+    CameraView camera;
+    AimState aim;
     uint32_t known = 0;     // character objects from the last scan
     uint32_t active = 0;    // valid, not at the origin, within range
     uint32_t on_screen = 0;
@@ -54,6 +65,7 @@ public:
 
 private:
     void Run();
+    void ReadAim(uintptr_t entity, AimState& aim) const;
 
     Telemetry* tel_ = nullptr;
     uintptr_t base_ = 0;

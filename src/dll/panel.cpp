@@ -29,6 +29,12 @@ void DrawPanel() {
         else
             ImGui::Text("esp: fov %.1f  chars %u known, %u in range, %u on screen, %u heads", e.fov_deg, e.known,
                         e.active, e.on_screen, e.heads);
+        const Aimbot::Status& a = rt.AimStatus();
+        ImGui::Text("aim: accumulator %s  key %s  target %s  err %.2f deg  writes %llu", a.accumulator ? "ok" : "missing",
+                    a.key ? "held" : "-", a.target ? "locked" : "-", a.error_deg,
+                    static_cast<unsigned long long>(a.writes));
+        ImGui::Text("     crosshair offset yaw %+.2f pitch %+.2f deg%s  flight %.0f ms", a.offset_yaw_deg,
+                    a.offset_pitch_deg, a.recoil_hold ? "  (recoil hold)" : "", a.flight_ms);
         ImGui::Text("dropped %llu  pipe %s", static_cast<unsigned long long>(rt.Tel().Dropped(Channel::Render)),
                     rt.Tel().PipeConnected() ? "on" : "off");
         ImGui::End();

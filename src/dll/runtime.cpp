@@ -76,11 +76,11 @@ void Runtime::OnResize(IDXGISwapChain* sc, bool before) {
 void Runtime::OnPresented(double cpu_ms, double wall_ms) { stats_->Add(Stage::Chain, float(cpu_ms), float(wall_ms)); }
 
 void Runtime::UpdateEsp(float width, float height) {
-    if (!esp_on_.load(std::memory_order_relaxed)) {
+    const Config c = config_->Snapshot();
+    if (!esp_on_.load(std::memory_order_relaxed) && !c.aim_enabled) {  // the aim needs the same reads
         esp_.items.clear();
         return;
     }
-    const Config c = config_->Snapshot();
     game::EspOptions opt;
     opt.width = width;
     opt.height = height;
@@ -88,6 +88,9 @@ void Runtime::UpdateEsp(float width, float height) {
     opt.civilians = c.esp_civilians != 0;
     opt.dead = c.esp_dead != 0;
     world_.BuildFrame(opt, esp_, *stats_);
+    const StageSpan aim_span;
+    aim_.Update(esp_, c, *tel_, Frame());
+    aim_span.End(*stats_, Stage::Aim);
     if (Clock::NowMs() - esp_window_ms_ >= 1000.0) PushEspStats();
 }
 

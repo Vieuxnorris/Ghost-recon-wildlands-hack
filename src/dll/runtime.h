@@ -7,6 +7,7 @@
 #include "common/shared_control.h"
 #include "config/config.h"
 #include "core/stats.h"
+#include "dll/aimbot.h"
 #include "game/world.h"
 #include "telemetry/telemetry.h"
 
@@ -33,6 +34,7 @@ public:
     void UpdateEsp(float width, float height);
     const game::EspFrame& Esp() const { return esp_; }  // render thread only
     bool EspOn() const { return esp_on_.load(std::memory_order_relaxed); }
+    const Aimbot::Status& AimStatus() const { return aim_.Last(); }  // render thread only
 
 private:
     void Tick();
@@ -50,6 +52,7 @@ private:
     bool key_down_[4] = {};
     game::World world_;
     game::EspFrame esp_;
+    Aimbot aim_;
     std::atomic<bool> esp_on_{true};
     double esp_window_ms_ = 0;
     double window_start_ms_ = 0;

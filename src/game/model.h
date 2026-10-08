@@ -33,6 +33,17 @@ inline constexpr size_t kSpineBaseBone = 2;
 inline constexpr float kHeadMaxDist = 0.45f;        // from the neck bone
 inline constexpr float kHeadMinAlongSpine = 0.12f;  // beyond the neck bone, along spine 2 -> 4
 
+// Player's aim component: [[O + 0x78] + 0x170] (O = the player's entity), the view-angle accumulator.
+// A +1 deg write turns the camera within one frame and is not overwritten (camera-findings.md section 5).
+inline constexpr size_t kEntityAimHolderOff = 0x78;
+inline constexpr size_t kAimHolderCompOff = 0x170;
+inline constexpr uintptr_t kAimCompVtableRva = 0x3BCA868;
+inline constexpr size_t kAimYawOff = 0x2E0;       // f32 rad = camera heading - 90 deg
+inline constexpr size_t kAimPitchOff = 0x2E4;     // f32 rad = camera pitch
+inline constexpr size_t kAimPitchMinOff = 0x2E8;  // f32 rad (about -75 deg)
+inline constexpr size_t kAimPitchMaxOff = 0x2EC;  // f32 rad (about +75 deg)
+inline constexpr float kAimYawToHeading = 1.5707963f;  // heading = accumulator yaw + 90 deg
+
 inline constexpr uint32_t kFlagPlayer = 0x1;
 inline constexpr uint32_t kFlagAi = 0x2;
 inline constexpr uint32_t kFlagCombatant = 0x8;
