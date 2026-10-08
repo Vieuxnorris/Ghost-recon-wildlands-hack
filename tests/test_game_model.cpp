@@ -51,7 +51,7 @@ static void SetBone(std::vector<float>& b, size_t i, Vec3 p) {
     b[i * kBoneFloats + 7] = 1.0f;  // quaternion w
 }
 
-TEST_CASE("HeadFromBones averages the head cluster and ignores a raised hand") {
+TEST_CASE("HeadFromBones takes the median of the head cluster and ignores a raised hand") {
     std::vector<float> b(20 * kBoneFloats, 0.0f);
     const float spine[5] = {0.96f, 0.96f, 1.03f, 1.20f, 1.38f};
     for (size_t i = 0; i < 5; ++i) SetBone(b, i, {0, 0, spine[i]});
@@ -62,9 +62,28 @@ TEST_CASE("HeadFromBones averages the head cluster and ignores a raised hand") {
     SetBone(b, 9, {0.20f, 0.00f, 1.10f});  // elbow, below the neck
     Vec3 head, crown;
     REQUIRE(HeadFromBones(b.data(), 20, head, crown));
-    CHECK_THAT(head.z, WithinAbs((1.60 + 1.70 + 1.78) / 3.0, 1e-4));
-    CHECK_THAT(head.y, WithinAbs(0.2 / 3.0, 1e-4));
+    CHECK_THAT(head.z, WithinAbs(1.70, 1e-5));
+    CHECK_THAT(head.y, WithinAbs(0.10, 1e-5));
     CHECK_THAT(crown.z, WithinAbs(1.78, 1e-5));
+}
+
+TEST_CASE("HeadFromBones follows a spine leaning forward (crouched, measured in game)") {
+    // Squad member crouched (live/50): spine 2 -> 4 leans forward, the face is 0.3 m ahead of bone 4 but
+    // only ~0.1 m above it, which a vertical-only rule missed.
+    std::vector<float> b(20 * kBoneFloats, 0.0f);
+    SetBone(b, 0, {0.0f, 0.01f, 0.41f});
+    SetBone(b, 1, {0.0f, 0.01f, 0.41f});
+    SetBone(b, 2, {0.0f, 0.01f, 0.48f});
+    SetBone(b, 3, {0.0f, 0.10f, 0.63f});
+    SetBone(b, 4, {0.0f, 0.23f, 0.74f});
+    SetBone(b, 5, {0.06f, 0.48f, 0.88f});  // face
+    SetBone(b, 6, {0.08f, 0.56f, 0.83f});  // face
+    SetBone(b, 7, {0.10f, 0.61f, 0.89f});  // face
+    SetBone(b, 8, {-0.21f, 0.62f, 0.48f}); // hand, low and forward: behind the plane of bone 4
+    Vec3 head, crown;
+    REQUIRE(HeadFromBones(b.data(), 20, head, crown));
+    CHECK_THAT(head.y, WithinAbs(0.56, 1e-5));
+    CHECK_THAT(head.z, WithinAbs(0.88, 1e-5));
 }
 
 TEST_CASE("HeadFromBones fails without head bones") {

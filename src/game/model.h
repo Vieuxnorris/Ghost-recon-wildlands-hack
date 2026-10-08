@@ -27,8 +27,11 @@ inline constexpr size_t kEntityFlagsOff = 0xD0;  // u32: category bits, see Clas
 inline constexpr size_t kPoseBonesOff = 0x178;
 inline constexpr size_t kBoneStride = 0x20;
 inline constexpr size_t kBoneFloats = kBoneStride / 4;
-inline constexpr size_t kBonesRead = 96;  // head bones sit within the first ~80 on every skeleton seen
-inline constexpr size_t kNeckBone = 4;    // spine 0-4 is the same on every skeleton seen
+inline constexpr size_t kBonesRead = 128;  // face bones reach index ~107 on squad skeletons (live/50)
+inline constexpr size_t kNeckBone = 4;     // spine 0-4 is the same on every skeleton seen
+inline constexpr size_t kSpineBaseBone = 2;
+inline constexpr float kHeadMaxDist = 0.45f;        // from the neck bone
+inline constexpr float kHeadMinAlongSpine = 0.12f;  // beyond the neck bone, along spine 2 -> 4
 
 inline constexpr uint32_t kFlagPlayer = 0x1;
 inline constexpr uint32_t kFlagAi = 0x2;
@@ -56,8 +59,10 @@ struct GameMatrix {
     bool Plausible() const;                 // finite, orthonormal rotation
 };
 
-// Head centre and crown in model space. Head bones: within 0.45 m of the neck bone and >= 0.15 m above it
-// (excludes a hand raised above the head). False when no bone qualifies.
+// Head centre (median of the head bones) and crown (highest head bone) in model space. Head bones: within
+// 0.45 m of the neck bone and more than 0.12 m beyond it along the spine axis (bone 2 -> 4), so the rule
+// follows a torso leaning forward (crouched, sprinting) and still excludes a hand raised above the head.
+// False when no bone qualifies.
 bool HeadFromBones(const float* bones, size_t count, Vec3& head, Vec3& crown);
 
 struct CameraView {

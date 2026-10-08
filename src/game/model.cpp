@@ -1,4 +1,5 @@
 #include "game/model.h"
+#include <algorithm>
 #include <cmath>
 
 namespace grw::game {
@@ -45,21 +46,36 @@ bool GameMatrix::Plausible() const {
 
 bool HeadFromBones(const float* bones, size_t count, Vec3& head, Vec3& crown) {
     if (count <= kNeckBone) return false;
-    const float* n = bones + kNeckBone * kBoneFloats;
-    const Vec3 neck{n[0], n[1], n[2]};
-    Vec3 sum;
-    int k = 0;
+    if (count > kBonesRead) count = kBonesRead;
+    auto at = [&](size_t i) { return Vec3{bones[i * kBoneFloats], bones[i * kBoneFloats + 1], bones[i * kBoneFloats + 2]}; };
+    const Vec3 neck = at(kNeckBone);
+    Vec3 axis = neck - at(kSpineBaseBone);
+    const float len = axis.Length();
+    axis = (len > 0.05f && std::isfinite(len)) ? axis * (1.0f / len) : Vec3{0, 0, 1};
+
+    float xs[kBonesRead], ys[kBonesRead], zs[kBonesRead];
+    Vec3 picked[kBonesRead];
+    size_t k = 0;
     for (size_t i = 0; i < count; ++i) {
-        const float* b = bones + i * kBoneFloats;
-        const Vec3 p{b[0], b[1], b[2]};
+        const Vec3 p = at(i);
         if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) continue;
-        if ((p - neck).Length() >= 0.45f || p.z <= neck.z + 0.15f) continue;
-        sum = sum + p;
-        if (k == 0 || p.z > crown.z) crown = p;
+        const Vec3 d = p - neck;
+        if (d.Length() >= kHeadMaxDist || d.Dot(axis) <= kHeadMinAlongSpine) continue;
+        picked[k] = p;
+        xs[k] = p.x;
+        ys[k] = p.y;
+        zs[k] = p.z;
         ++k;
     }
     if (k == 0) return false;
-    head = sum * (1.0f / float(k));
+    auto median = [k](float* v) {
+        std::nth_element(v, v + k / 2, v + k);
+        return v[k / 2];
+    };
+    head = {median(xs), median(ys), median(zs)};
+    crown = head;
+    for (size_t i = 0; i < k; ++i)
+        if ((picked[i] - head).Length() < 0.25f && picked[i].z > crown.z) crown = picked[i];
     return true;
 }
 
