@@ -14,7 +14,7 @@ namespace {
 
 constexpr int kStackSlots = 64;  // qwords scanned above RSP
 constexpr int kMaxReturns = 12;  // image addresses kept per hit
-constexpr int kRing = 32;
+constexpr int kRing = 256;
 constexpr uintptr_t kNone[4] = {};
 constexpr Mode kWrites[4] = {};
 constexpr int kDump = 0x100;  // bytes copied at [rcx] and [rdx] on each hit
@@ -35,6 +35,10 @@ std::atomic<uint32_t> g_written{0};  // hits recorded by the handler
 uint32_t g_read = 0;                 // writer thread only
 std::atomic<int> g_hits{0};
 std::atomic<int> g_max_hits{8};
+std::atomic<int> g_trigger_slot{-1};
+std::atomic<int> g_window_ms{1500};
+std::atomic<uint64_t> g_window_until{0};  // GetTickCount64 deadline of the current trigger window
+uint64_t g_dropped = 0;                   // writer thread only: hits overwritten before Drain read them
 std::atomic<bool> g_armed{false};
 PVOID g_veh = nullptr;
 uintptr_t g_image_lo = 0, g_image_hi = 0;
@@ -107,6 +111,13 @@ LONG CALLBACK Handler(EXCEPTION_POINTERS* ep) {
         g_tracker_calls.fetch_add(1, std::memory_order_relaxed);
         TrackProjectile(c->Rcx);
         return EXCEPTION_CONTINUE_EXECUTION;
+    }
+    if (const int trig = g_trigger_slot.load(std::memory_order_relaxed); trig >= 0) {
+        const uint64_t now = GetTickCount64();
+        if (fired & (uint64_t(1) << trig))
+            g_window_until.store(now + uint64_t(g_window_ms.load(std::memory_order_relaxed)), std::memory_order_relaxed);
+        else if (now > g_window_until.load(std::memory_order_relaxed))
+            return EXCEPTION_CONTINUE_EXECUTION;  // outside a window: neither recorded nor counted
     }
     const int n = g_hits.fetch_add(1) + 1;
     if (n > g_max_hits.load()) {
@@ -221,6 +232,10 @@ void Configure(const uintptr_t (&addrs)[4], const Mode (&modes)[4], int len, int
 }
 
 void SetTracker(int slot) { g_tracker_slot = slot; }
+void SetTrigger(int slot, int window_ms) {
+    g_window_ms = window_ms;
+    g_trigger_slot = slot;
+}
 uint64_t TrackerCalls() { return g_tracker_calls.load(std::memory_order_relaxed); }
 uint64_t TrackerSamples() { return g_proj_written.load(std::memory_order_relaxed); }
 
@@ -309,6 +324,13 @@ void Drain(Telemetry& tel, HitFn on_hit, void* ctx, ProjFn on_proj) {
     char buf[24];
     static const char* const kReg[16] = {"rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
                                          "r8",  "r9",  "r10", "r11", "r12", "r13", "r14", "r15"};
+    if (w - g_read > uint32_t(kRing)) {  // the handler lapped us: those slots hold newer hits
+        g_dropped += w - g_read - kRing;
+        g_read = w - kRing;
+        Line l;
+        JsonLine(l, "hwbp_dropped", tel.SinceStartMs(), 0).Int("total", int64_t(g_dropped)).Finish();
+        tel.Push(Channel::Writer, l);
+    }
     for (; g_read < w; ++g_read) {
         const Hit h = g_ring[g_read % kRing];
         if (on_hit) on_hit({h.rip - g_image_lo, h.regs, h.mem_rcx, h.mem_rdx, h.ok_rcx, h.ok_rdx}, ctx);

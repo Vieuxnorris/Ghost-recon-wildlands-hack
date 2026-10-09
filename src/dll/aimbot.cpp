@@ -97,8 +97,9 @@ void Aimbot::Update(const game::EspFrame& f, const Config& c, Telemetry& tel, ui
         k.id = uint32_t(it.addr >> 4);
         k.enemy = true;
         k.alive = true;  // dead characters are Category::Dead
-        k.los_visible = true;
-        k.los_age_ms = 0;
+        // M6: the line-of-sight worker's verdict; off -> every enemy counts as visible
+        k.los_visible = !c.los_enabled || it.los == game::kLosVisible;
+        k.los_age_ms = c.los_enabled ? it.los_age_ms : 0.0;
         k.angle_rad = AngularDistance(aim_view, DirectionToAngles(it.head_world - f.camera.pos));
         candidates_.push_back(k);
         items_.push_back(&it);

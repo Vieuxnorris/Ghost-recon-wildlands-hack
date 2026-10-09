@@ -62,7 +62,18 @@ bool Assign(Config& c, std::string_view key, std::string_view v) {
         return ParseInt(v, c.hwbp_len) && (c.hwbp_len == 1 || c.hwbp_len == 2 || c.hwbp_len == 4 || c.hwbp_len == 8);
     if (key == "hwbp_max_hits") return ParseInt(v, c.hwbp_max_hits) && c.hwbp_max_hits > 0;
     if (key == "hwbp_read") return ParseInt(v, c.hwbp_read) && c.hwbp_read >= 0 && c.hwbp_read <= 2;
+    if (key == "hwbp_trigger") return ParseInt(v, c.hwbp_trigger) && c.hwbp_trigger >= -1 && c.hwbp_trigger <= 3;
+    if (key == "hwbp_window_ms")
+        return ParseInt(v, c.hwbp_window_ms) && c.hwbp_window_ms >= 1 && c.hwbp_window_ms <= 60000;
     if (key == "bullet_probe") return ParseInt(v, c.bullet_probe);
+    if (key == "los_test") return ParseInt(v, c.los_test) && (c.los_test == 0 || c.los_test == 1);
+    if (key == "los_enabled") return ParseInt(v, c.los_enabled) && (c.los_enabled == 0 || c.los_enabled == 1);
+    if (key == "los_interval_ms")
+        return ParseInt(v, c.los_interval_ms) && c.los_interval_ms >= 5 && c.los_interval_ms <= 1000;
+    if (key == "los_debug") return ParseInt(v, c.los_debug) && (c.los_debug == 0 || c.los_debug == 1);
+    if (key == "los_flag") return ParseInt(v, c.los_flag) && (c.los_flag == 0 || c.los_flag == 1);
+    if (key == "los_mask") return ParseU64(v, c.los_mask) && c.los_mask != 0;
+    if (key == "los_max_rays") return ParseInt(v, c.los_max_rays) && c.los_max_rays >= 1 && c.los_max_rays <= 256;
     if (key == "proj_track") return ParseInt(v, c.proj_track) && c.proj_track >= 0 && c.proj_track <= 2;
     if (key == "esp_max_distance_m") return ParseFloat(v, c.esp_max_distance_m);
     if (key == "esp_enabled") return ParseInt(v, c.esp_enabled);
@@ -132,6 +143,14 @@ std::string DefaultConfigText() {
       << "esp_list_interval_ms = " << d.esp_list_interval_ms << "\n"
       << "# fallback when the list can't be read: hot-region rescans (ms, >= 250), full memory scans every 30 s\n"
       << "esp_scan_interval_ms = " << d.esp_scan_interval_ms << "\n"
+      << "# line of sight through the game's bullet rays (camera -> heads): 0 = off (every enemy visible)\n"
+      << "los_enabled = " << d.los_enabled << "\n"
+      << "los_interval_ms = " << d.los_interval_ms << "\n"
+      << "los_max_rays = " << d.los_max_rays << "\n"
+      << "# collision layers of the rays: the bullets' without 25 (the characters' sensor spheres)\n"
+      << "los_mask = 0x" << std::hex << d.los_mask << std::dec << "\n"
+      << "# filter flag: 1 like the bullets (cars then hide nothing), 0 = vehicles block\n"
+      << "los_flag = " << d.los_flag << "\n"
       << "# learn bullet paths from the player's shots: 0 off, 1 always, 2 only while useful\n"
       << "proj_track = " << d.proj_track << "\n"
       << "# 0 = hooks only, 1 = ImGui frame without rendering, 2 = full overlay\n"

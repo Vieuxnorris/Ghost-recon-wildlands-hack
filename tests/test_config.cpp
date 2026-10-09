@@ -25,6 +25,16 @@ TEST_CASE("ParseConfig reads overlay_mode and rejects values outside 0..2") {
     CHECK(c.overlay_mode == 0);
 }
 
+TEST_CASE("ParseConfig reads the hwbp trigger window and rejects out-of-range values") {
+    Config c;
+    CHECK(c.hwbp_trigger == -1);
+    REQUIRE(ParseConfig("hwbp_trigger = 1\nhwbp_window_ms = 2000\n", c).ok);
+    CHECK(c.hwbp_trigger == 1);
+    CHECK(c.hwbp_window_ms == 2000);
+    CHECK_FALSE(ParseConfig("hwbp_trigger = 4\n", c).ok);
+    CHECK_FALSE(ParseConfig("hwbp_window_ms = 0\n", c).ok);
+}
+
 TEST_CASE("ParseConfig reads hook_method and rejects values outside 0..3") {
     Config c;
     CHECK(c.hook_method == 0);

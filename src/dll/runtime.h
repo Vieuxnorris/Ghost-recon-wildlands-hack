@@ -11,6 +11,7 @@
 #include "core/stats.h"
 #include "dll/aimbot.h"
 #include "dll/bullet_probe.h"
+#include "dll/los.h"
 #include "game/world.h"
 #include "telemetry/telemetry.h"
 
@@ -63,6 +64,11 @@ private:
     Aimbot aim_;
     bullet::Probe probe_;
     std::atomic<float> cam_x_{0}, cam_y_{0}, cam_z_{0};  // render thread -> writer thread (player's shots)
+    LineOfSight los_;
+    std::unordered_map<uintptr_t, LosVerdict> los_verdicts_;  // render thread
+    std::vector<LosRequest> los_reqs_;                        // render thread
+    double los_purge_ms_ = 0;                                 // render thread
+    void UpdateLineOfSight();                                 // render thread
     std::atomic<float> weapon_speed_{0}, weapon_damage_{0};
     std::atomic<uint64_t> weapon_id_{0};
     std::atomic<double> aim_beyond_ms_{-1e18};  // last time the aim extrapolated past the learned path

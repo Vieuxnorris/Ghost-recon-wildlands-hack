@@ -33,6 +33,7 @@ bool Runtime::Start(const std::wstring& base_dir, SharedControl* control) {
     const Config c = config_->Snapshot();
     esp_on_ = c.esp_enabled != 0;
     world_.Start(tel_.get(), DWORD(c.esp_scan_interval_ms), DWORD(c.esp_list_interval_ms));
+    los_.Start(tel_.get());
     book_path_ = base_dir + L"\\trajectories.txt";
     if (std::ifstream in{book_path_, std::ios::binary}) {
         std::stringstream text;
@@ -44,6 +45,7 @@ bool Runtime::Start(const std::wstring& base_dir, SharedControl* control) {
 }
 
 void Runtime::Stop() {
+    los_.Stop();
     world_.Stop();
     probe_.Stop();
     SaveTrajectories();
@@ -90,6 +92,39 @@ void Runtime::OnResize(IDXGISwapChain* sc, bool before) {
 
 void Runtime::OnPresented(double cpu_ms, double wall_ms) { stats_->Add(Stage::Chain, float(cpu_ms), float(wall_ms)); }
 
+// Render thread: the latest verdicts onto this frame's items, then this frame's heads to the worker.
+void Runtime::UpdateLineOfSight() {
+    los_.Collect(los_verdicts_);
+    const double now = Clock::NowMs();
+    if (now >= los_purge_ms_) {
+        los_purge_ms_ = now + 1000.0;
+        std::erase_if(los_verdicts_, [now](const auto& kv) { return now - kv.second.t_ms > 3000.0; });
+    }
+    los_reqs_.clear();
+    const Vec3 fwd = esp_.camera.forward;
+    for (game::EspItem& it : esp_.items) {
+        if (const auto v = los_verdicts_.find(it.addr); v != los_verdicts_.end()) {
+            it.los = v->second.state;
+            it.los_age_ms = float(now - v->second.t_ms);
+        }
+        if (it.head_radius <= 0 || it.cat == game::Category::Dead) continue;
+        LosRequest r;
+        r.key = it.addr;
+        r.point = it.head_world;
+        r.feet = it.feet;
+        r.vehicle = it.vehicle;
+        r.enemy = it.cat == game::Category::SantaBlanca || it.cat == game::Category::Unidad;
+        const Vec3 d = it.head_world - esp_.camera_pos;
+        const float len = d.Length();
+        r.angle = len > 0.0f ? std::acos(std::clamp(d.Dot(fwd) / len, -1.0f, 1.0f)) : 0.0f;
+        los_reqs_.push_back(r);
+    }
+    // rays from where the bullets start: the player's head in third person (the camera only when scoped,
+    // where both coincide), camera-findings.md section 9
+    const Vec3 origin = esp_.player_head_ok ? esp_.player_head : esp_.camera_pos;
+    if (esp_.camera_ok) los_.Submit(origin, esp_.player_ok ? &esp_.player_feet : nullptr, los_reqs_);
+}
+
 void Runtime::UpdateEsp(float width, float height) {
     const Config c = config_->Snapshot();
     if (!esp_on_.load(std::memory_order_relaxed) && !c.aim_enabled) {  // the aim needs the same reads
@@ -111,10 +146,12 @@ void Runtime::UpdateEsp(float width, float height) {
         cam_x_.store(esp_.camera_pos.x, std::memory_order_relaxed);
         cam_y_.store(esp_.camera_pos.y, std::memory_order_relaxed);
         cam_z_.store(esp_.camera_pos.z, std::memory_order_relaxed);
+        los_.SetCamera(esp_.camera_pos, {fwd[0], fwd[1], fwd[2]});
         weapon_speed_.store(esp_.weapon_speed, std::memory_order_relaxed);
         weapon_damage_.store(esp_.weapon_damage, std::memory_order_relaxed);
         weapon_id_.store(esp_.weapon_id, std::memory_order_relaxed);
     }
+    if (c.los_enabled) UpdateLineOfSight();
     const StageSpan aim_span;
     AcquireSRWLockShared(&book_lock_);
     BulletKey key;
@@ -159,6 +196,8 @@ void Runtime::PushEspStats() {
         .Int("active", esp_.active)
         .Int("on_screen", esp_.on_screen)
         .Int("heads", esp_.heads);
+    if (esp_.player_head_ok)
+        j.Num("phx", esp_.player_head.x).Num("phy", esp_.player_head.y).Num("phz", esp_.player_head.z);
     // the three nearest drawn characters: category, distance, head marker
     const game::EspItem* closest[3] = {};
     for (const game::EspItem& it : esp_.items)
@@ -274,10 +313,19 @@ void Runtime::Tick() {
     if (track) hwbp::SetTracker(1);  // before arming; after disarming below, so no step is taken for a research hit
     tracker_armed_.store(track, std::memory_order_relaxed);
     PushTrackerStats(track);
+    los_.SetTest(c.los_test != 0);
+    LosParams lp;
+    lp.interval_ms = c.los_interval_ms;
+    lp.max_rays = c.los_max_rays;
+    lp.mask = c.los_mask;
+    lp.flag = c.los_flag != 0;
+    lp.debug = c.los_debug != 0;
+    los_.SetParams(lp);
     if (const uintptr_t w = probe_.Watch()) {  // the bullet probe borrows DR3 for a moment
         watch[3] = w;
         modes[3] = hwbp::Mode::Write;
     }
+    hwbp::SetTrigger(c.hwbp_trigger, c.hwbp_window_ms);
     hwbp::Configure(watch, modes, c.hwbp_len, c.hwbp_max_hits);
     if (!track) hwbp::SetTracker(-1);
     hwbp::Drain(

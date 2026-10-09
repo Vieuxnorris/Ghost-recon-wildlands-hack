@@ -22,10 +22,15 @@ struct EspItem {
     float head_radius = 0;  // pixels, 0 = no pose (no head marker)
     Vec3 head_world;        // valid when head_radius > 0
     float dist = 0;         // metres from the camera
+    Vec3 feet;              // world position of the character's root (its feet)
     uint32_t flags = 0;
     Category cat = Category::Unknown;
     bool vehicle = false;
+    // Line of sight from the camera to the head through the game's bullet ray filter (M6, dll/los).
+    uint8_t los = 0;            // kLosUnknown / kLosVisible / kLosHidden
+    float los_age_ms = 1e9f;    // age of that verdict
 };
+inline constexpr uint8_t kLosUnknown = 0, kLosVisible = 1, kLosHidden = 2;
 
 struct EspOptions {
     float width = 0, height = 0;
@@ -53,6 +58,10 @@ struct EspFrame {
     float weapon_damage = 0;
     uint64_t weapon_id = 0;   // the weapon objects in hand (changes on a switch), 0 = unknown
     bool from_list = false;   // characters from the game's entity list (else from the fallback scan)
+    bool player_ok = false;   // the player's character was among them
+    Vec3 player_feet;
+    bool player_head_ok = false;
+    Vec3 player_head;         // from its bones: the bullets' origin in third person
     uint32_t known = 0;     // character objects from the list (or the last scan)
     uint32_t active = 0;    // valid, not at the origin, within range
     uint32_t on_screen = 0;

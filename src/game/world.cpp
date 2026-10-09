@@ -212,6 +212,7 @@ void World::Run() {
                 .Bool("ok", reg.ok)
                 .Int("slots", last.slots)
                 .Int("entities", last.entities)
+                .Int("source", last.source)
                 .Int("chars", int64_t(list_chars.size()))
                 .Bool("weapon", last.weapon_state != 0)
                 .Bool("camera_missing", camera_missing)
@@ -278,6 +279,8 @@ void World::ReadWeapon(EspFrame& out) const {
 void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) {
     out.items.clear();
     out.camera_ok = false;
+    out.player_ok = false;
+    out.player_head_ok = false;
     out.active = out.on_screen = out.heads = 0;
 
     {
@@ -336,6 +339,17 @@ void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) 
         const Category cat = flags_ok ? Classify(flags) : Category::Unknown;
         if (cat == Category::Player) {
             ReadAim(owner, out.aim);
+            out.player_ok = true;
+            out.player_feet = feet;
+            // the player's head: where the bullets start in third person (camera-findings.md section 9)
+            uintptr_t bones_ptr;
+            Vec3 head_m, crown_m;
+            if (pose && mem::Read(pose + kPoseBonesOff, bones_ptr) &&
+                mem::Read(bones_ptr, bones_.data(), bones_.size() * sizeof(float)) &&
+                HeadFromBones(bones_.data(), kBonesRead, head_m, crown_m)) {
+                out.player_head_ok = true;
+                out.player_head = m.ToWorld(head_m);
+            }
             continue;
         }
         if (cat == Category::Civilian && !opt.civilians) continue;
@@ -351,6 +365,7 @@ void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) 
         EspItem it;
         it.addr = a;
         it.dist = dist;
+        it.feet = feet;
         it.flags = flags;
         it.cat = cat;
         it.vehicle = flags_ok && (flags & kFlagVehicle);

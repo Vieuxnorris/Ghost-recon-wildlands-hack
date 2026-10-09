@@ -19,7 +19,7 @@ class Telemetry;
 // The crosshair is the rendered camera, which differs from the accumulator by weapon sway and a small
 // constant offset (+0.13 deg yaw measured, live/55): the error is taken from accumulator + that offset
 // averaged over 0.2 s, frozen while a shot kicks the camera (the game recovers recoil itself).
-// No line of sight yet (M6): every live enemy with a head is treated as visible.
+// Targets: live enemies with a head whose line-of-sight verdict (M6, EspItem::los) is "visible" and fresh.
 class Aimbot {
 public:
     struct Status {

@@ -44,6 +44,9 @@ void Drain(Telemetry& tel, HitFn on_hit = nullptr, void* ctx = nullptr, ProjFn o
 // once per simulation step with the projectile in rcx) are not recorded as hits: the projectile is sampled
 // when it was fired by the player (SetCamera), and Drain pushes "proj" lines. -1 = off. Writer thread.
 void SetTracker(int slot);
+// Triggered capture: a hit of `slot` opens a window of `window_ms`; the other slots' hits are recorded only
+// inside a window (outside, they are not counted against max_hits). slot -1 = record every hit. Writer thread.
+void SetTrigger(int slot, int window_ms);
 // Since injection: exceptions taken by the tracker (one per simulation step of any projectile in the game while
 // it is armed: its cost) and steps of the player's projectiles kept.
 uint64_t TrackerCalls();

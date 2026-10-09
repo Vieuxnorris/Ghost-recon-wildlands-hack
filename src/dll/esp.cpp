@@ -30,12 +30,18 @@ void DrawEsp() {
     const ImU32 shadow = IM_COL32(0, 0, 0, 200);
     char label[48];
     for (const game::EspItem& it : rt.Esp().items) {
-        const ImU32 col = Colour(it.cat);
+        // line of sight (M6): hidden -> faded box and grey head; visible -> green head; unknown -> as before
+        const bool hidden = it.los == game::kLosHidden;
+        ImU32 col = Colour(it.cat);
+        if (hidden) col = (col & 0x00FFFFFF) | (IM_COL32_A_MASK & IM_COL32(0, 0, 0, 90));
+        const ImU32 head_col = hidden                         ? IM_COL32(150, 150, 150, 200)
+                               : it.los == game::kLosVisible ? IM_COL32(40, 255, 40, 255)
+                                                             : IM_COL32(255, 32, 32, 255);
         const ImVec2 a(it.box_min.x, it.box_min.y), b(it.box_max.x, it.box_max.y);
-        dl->AddRect(ImVec2(a.x - 1, a.y - 1), ImVec2(b.x + 1, b.y + 1), shadow);
+        dl->AddRect(ImVec2(a.x - 1, a.y - 1), ImVec2(b.x + 1, b.y + 1), hidden ? IM_COL32(0, 0, 0, 90) : shadow);
         dl->AddRect(a, b, col, 0.0f, 0, 1.5f);
         if (it.head_radius > 0)
-            dl->AddCircle(ImVec2(it.head.x, it.head.y), it.head_radius, IM_COL32(255, 32, 32, 255), 0, 1.5f);
+            dl->AddCircle(ImVec2(it.head.x, it.head.y), it.head_radius, head_col, 0, it.los == game::kLosVisible ? 2.0f : 1.5f);
         std::snprintf(label, sizeof label, "%s%s %.0f m", game::CategoryName(it.cat), it.vehicle ? " veh" : "",
                       it.dist);
         const ImVec2 ts = ImGui::CalcTextSize(label);

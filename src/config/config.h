@@ -26,9 +26,26 @@ struct Config {
     int hwbp_len = 4;
     int hwbp_max_hits = 8;
     int hwbp_read = 0;  // 0 write, 1 read or write, 2 execute (hwbp_addr = an instruction)
+    // Research: a hit of this slot (0-3 = DR0-DR3) opens a window of hwbp_window_ms during which the other
+    // slots are recorded; outside it they are ignored and not counted against hwbp_max_hits. -1 = record all.
+    int hwbp_trigger = -1;
+    int hwbp_window_ms = 1500;
     // Research: find each fired bullet in memory and record its flight (needs the execute breakpoint on the
     // fire function, base + 0x1471F8E0).
     int bullet_probe = 0;
+    // Research: every 500 ms, one ray through the game's physics (bullet filter) from the camera along its
+    // axis, 1000 m, logged as "ray_test".
+    int los_test = 0;
+    // Line of sight (M6): rays through the game's physics with the bullets' filter, camera -> heads, on their
+    // own thread every los_interval_ms, at most los_max_rays per pass (enemies near the crosshair first).
+    // 0 = off: every enemy counts as visible, as before M6.
+    int los_enabled = 1;
+    int los_interval_ms = 33;
+    int los_max_rays = 40;
+    // the bullets' collision layers without 25 (the characters' sensor spheres), camera-findings.md section 9
+    unsigned long long los_mask = 0x3115fd67full;
+    int los_flag = 0;  // the filter context's flag: 1 like the bullets, which then miss the vehicles
+    int los_debug = 0;  // research: los_detail / los_hit telemetry
     // Learn the bullet paths from the player's projectiles (instruction breakpoint on DR1, one exception per
     // simulation step of every projectile in the game): 0 = off, 1 = always, 2 = only while learning is useful
     // (weapon in hand not fired yet since injection, no learned path, or aiming beyond the learned range).
