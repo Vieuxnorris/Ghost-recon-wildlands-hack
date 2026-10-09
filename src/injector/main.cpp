@@ -154,7 +154,9 @@ int wmain(int argc, wchar_t** argv) {
 
     std::error_code ec;
     fs::create_directories(base, ec);
-    const fs::path tmp = fs::temp_directory_path() / L"grw";
+    // A copy, so the build output can be relinked while the game holds it: in the runtime folder, which the user
+    // excluded from Defender with the project (copies in %TEMP%\grw were quarantined, 2026-10-09).
+    const fs::path tmp = base / L"dll";
     fs::create_directories(tmp, ec);
     RemoveStaleCopies(tmp);
     const fs::path copy = tmp / (L"grw_" + std::to_wstring(GetTickCount64()) + L".dll");
