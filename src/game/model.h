@@ -40,6 +40,20 @@ inline constexpr size_t kEntityListCountOff = 0xE8;
 inline constexpr size_t kEntityListStride = 0x18;
 inline constexpr size_t kEntityListMaxSlots = 4096;
 
+// The game's per-frame character update job (camera-findings.md section 10): job = [[base + 0x4D5B0B0] + 0x128]
+// (holder vtable 0x3A080B0, job vtable 0x3A78220, its function at +0x1C8 = base + 0x10B73A0); the character
+// objects A it updates: an hkArray at job + 0x1D8 {A*, u32 size at + 0x1E0}. Every live character, the player
+// included, and nothing else (56/56); survives where the entity list above does not (game restart).
+inline constexpr uintptr_t kCharJobHolderRva = 0x4D5B0B0;
+inline constexpr uintptr_t kCharJobHolderVtableRva = 0x3A080B0;
+inline constexpr size_t kHolderCharJobOff = 0x128;
+inline constexpr uintptr_t kJobVtableRva = 0x3A78220;
+inline constexpr size_t kJobFnOff = 0x1C8;
+inline constexpr uintptr_t kCharUpdateFnRva = 0x10B73A0;
+inline constexpr size_t kJobCharsOff = 0x1D8;
+inline constexpr size_t kJobCharsSizeOff = 0x1E0;
+inline constexpr size_t kJobCharsMax = 1024;
+
 // Pose: [[A + 0x270] + 0x178] = model-space bones {pos xyz, 0, quat xyzw}, +y forward, +z up.
 inline constexpr size_t kPoseBonesOff = 0x178;
 inline constexpr size_t kBoneStride = 0x20;

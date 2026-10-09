@@ -119,6 +119,54 @@ TEST_CASE("EntityRegistry searches components only for new or changed entities")
     CHECK(chars.size() == 3);
 }
 
+TEST_CASE("EntityRegistry prefers the character update job's array") {
+    FakeMem m = World();
+    constexpr uintptr_t kHolder = 0x30000000, kJob = 0x30001000, kArr = 0x30002000;
+    m.Alloc(kBase + kCharJobHolderRva, 8);
+    m.Set(kBase + kCharJobHolderRva, kHolder);
+    m.Alloc(kHolder, 0x200);
+    m.Set(kHolder, uint64_t(kBase + kCharJobHolderVtableRva));
+    m.Set(kHolder + kHolderCharJobOff, kJob);
+    m.Alloc(kJob, 0x200);
+    m.Set(kJob, uint64_t(kBase + kJobVtableRva));
+    m.Set(kJob + kJobFnOff, uint64_t(kBase + kCharUpdateFnRva));
+    m.Set(kJob + kJobCharsOff, kArr);
+    m.Set(kJob + kJobCharsSizeOff, uint32_t(3));
+    m.Alloc(kArr, 3 * 8);
+    // the player's and O2's characters, and a stale pointer
+    const uintptr_t arr[3] = {0x20200000, 0x21200000, 0x23000000};
+    for (int i = 0; i < 3; ++i) m.Set(kArr + i * 8, arr[i]);
+
+    EntityRegistry reg;
+    std::vector<uintptr_t> chars;
+    RegistryPass r = reg.Read(kBase, &FakeMem::Read, &m, chars);
+    REQUIRE(r.ok);
+    CHECK(r.source == 1);
+    CHECK(r.slots == 3);
+    CHECK(r.entities == 2);
+    CHECK(r.searched == 0);
+    CHECK(chars == std::vector<uintptr_t>{0x20200000, 0x21200000});
+    CHECK(r.player_entity == 0x20000000);
+    CHECK(r.weapon_state == 0x20400000);
+
+    // another job's function: not ours, back to the entity list
+    m.Set(kJob + kJobFnOff, uint64_t(kBase + 0x13562D8));
+    r = reg.Read(kBase, &FakeMem::Read, &m, chars);
+    REQUIRE(r.ok);
+    CHECK(r.source == 2);
+}
+
+TEST_CASE("EntityRegistry rejects a list object that holds something else than slots") {
+    FakeMem m = World();
+    // as seen after a zone reload: floats where the slot pointer was, FLT_MAX's low half as the count
+    m.Set(kList + kEntityListDataOff, uint64_t(0x42B65108435745FEull));
+    m.Set(kList + kEntityListCountOff, uint16_t(0xFFFF));
+    EntityRegistry reg;
+    std::vector<uintptr_t> chars{1};
+    CHECK_FALSE(reg.Read(kBase, &FakeMem::Read, &m, chars).ok);
+    CHECK(chars.empty());
+}
+
 TEST_CASE("EntityRegistry fails cleanly when the chain does not resolve") {
     FakeMem m = World();
     m.Set(kList, uint64_t(kBase + 0x999));
