@@ -1,5 +1,6 @@
 #include "dll/esp.h"
 #include <imgui.h>
+#include <cfloat>
 #include <cstdio>
 #include "dll/runtime.h"
 
@@ -21,12 +22,13 @@ ImU32 Colour(game::Category c) {
 
 }  // namespace
 
-void DrawEsp() {
+void DrawEsp(float label_size) {
     Runtime& rt = Rt();
     const ImGuiIO& io = ImGui::GetIO();
     rt.UpdateEsp(io.DisplaySize.x, io.DisplaySize.y);
     if (!rt.EspOn()) return;
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    ImFont* font = ImGui::GetFont();
     const ImU32 shadow = IM_COL32(0, 0, 0, 200);
     char label[48];
     for (const game::EspItem& it : rt.Esp().items) {
@@ -44,10 +46,10 @@ void DrawEsp() {
             dl->AddCircle(ImVec2(it.head.x, it.head.y), it.head_radius, head_col, 0, it.los == game::kLosVisible ? 2.0f : 1.5f);
         std::snprintf(label, sizeof label, "%s%s %.0f m", game::CategoryName(it.cat), it.vehicle ? " veh" : "",
                       it.dist);
-        const ImVec2 ts = ImGui::CalcTextSize(label);
+        const ImVec2 ts = font->CalcTextSizeA(label_size, FLT_MAX, 0.0f, label);
         const ImVec2 p((a.x + b.x - ts.x) * 0.5f, b.y + 2);
-        dl->AddText(ImVec2(p.x + 1, p.y + 1), shadow, label);
-        dl->AddText(p, col, label);
+        dl->AddText(font, label_size, ImVec2(p.x + 1, p.y + 1), shadow, label);
+        dl->AddText(font, label_size, p, col, label);
     }
 }
 

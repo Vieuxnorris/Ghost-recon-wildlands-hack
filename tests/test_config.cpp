@@ -105,3 +105,77 @@ TEST_CASE("ConfigStore creates, reloads and survives a broken file") {
     CHECK(r.parse.line == 2);
     CHECK(store.Snapshot().aim_tau_ms == 42.0f);
 }
+
+TEST_CASE("ConfigText writes every value back") {
+    Config c;
+    c.aim_tau_ms = 55.5f;
+    c.aim_key = 0x05;
+    c.mod_damage = 5.69f;
+    c.mod_magic_bullets = 1;
+    c.magic_target = 0;
+    c.magic_fov_deg = 30.0f;
+    c.magic_start_m = 8.0f;
+    c.magic_pierce = 0;
+    c.mod_infinite_ammo = 1;
+    c.mod_bullets_per_shot = 12;
+    c.magic_debug = 1;
+    c.los_mask = 0x3115fd67full;
+    c.hwbp_addr = 0x7ff6746af9d8ull;
+    Config back;
+    REQUIRE(ParseConfig(ConfigText(c), back).ok);
+    CHECK(back.magic_pierce == 0);
+    CHECK(back.mod_infinite_ammo == 1);
+    CHECK(back.mod_bullets_per_shot == 12);
+    CHECK(back.magic_debug == 1);
+    CHECK(Config{}.magic_debug == 0);
+    CHECK(Config{}.mod_bullets_per_shot == 1);
+    CHECK(Config{}.mod_infinite_ammo == 0);
+    CHECK(Config{}.magic_pierce == 1);
+    CHECK(back.aim_tau_ms == 55.5f);
+    CHECK(back.aim_key == 0x05);
+    CHECK(back.mod_damage == 5.69f);
+    CHECK(back.mod_magic_bullets == 1);
+    CHECK(back.magic_target == 0);
+    CHECK(back.magic_fov_deg == 30.0f);
+    CHECK(back.magic_start_m == 8.0f);
+    CHECK(back.los_mask == 0x3115fd67full);
+    CHECK(back.hwbp_addr == 0x7ff6746af9d8ull);
+    CHECK_FALSE(ParseConfig("magic_start_m = 1\n", back).ok);
+    CHECK_FALSE(ParseConfig("magic_fov_deg = 200\n", back).ok);
+    CHECK_FALSE(ParseConfig("magic_pierce = 2\n", back).ok);
+    CHECK_FALSE(ParseConfig("mod_bullets_per_shot = 0\n", back).ok);
+    CHECK_FALSE(ParseConfig("mod_bullets_per_shot = 33\n", back).ok);
+}
+
+TEST_CASE("ParseConfig reads the weapon mods and rejects out-of-range factors") {
+    Config c;
+    CHECK(c.mod_spread == 1.0f);
+    CHECK(c.mod_bullet_speed == 1.0f);
+    CHECK(c.mod_damage == 1.0f);
+    REQUIRE(ParseConfig("mod_spread = 0\nmod_bullet_speed = 2.5\nmod_damage = 10\n", c).ok);
+    CHECK(c.mod_spread == 0.0f);
+    CHECK(c.mod_bullet_speed == 2.5f);
+    CHECK(c.mod_damage == 10.0f);
+    CHECK_FALSE(ParseConfig("mod_spread = -1\n", c).ok);
+    CHECK_FALSE(ParseConfig("mod_bullet_speed = 0\n", c).ok);
+    CHECK_FALSE(ParseConfig("mod_damage = 1000\n", c).ok);
+    REQUIRE(ParseConfig("mod_recoil = 0\n", c).ok);
+    CHECK(c.mod_recoil == 0.0f);
+    CHECK_FALSE(ParseConfig("mod_recoil = 5\n", c).ok);
+    CHECK_FALSE(ParseConfig("mod_fire_rate = 4\n", c).ok);  // removed: not the cadence
+    CHECK(c.mod_instant_bullets == 0);
+    REQUIRE(ParseConfig("mod_instant_bullets = 1\n", c).ok);
+    CHECK(c.mod_instant_bullets == 1);
+    CHECK_FALSE(ParseConfig("mod_instant_bullets = 2\n", c).ok);
+    CHECK(c.mod_straight_bullets == 0);
+    REQUIRE(ParseConfig("mod_straight_bullets = 1\n", c).ok);
+    CHECK(c.mod_straight_bullets == 1);
+    CHECK_FALSE(ParseConfig("mod_straight_bullets = -1\n", c).ok);
+    CHECK(c.mod_teleport_bullets == 0);
+    REQUIRE(ParseConfig("mod_teleport_bullets = 1\n", c).ok);
+    CHECK(c.mod_teleport_bullets == 1);
+    CHECK_FALSE(ParseConfig("mod_teleport_bullets = 3\n", c).ok);
+    REQUIRE(ParseConfig("mod_magic_bullets = 1\n", c).ok);
+    CHECK(c.mod_magic_bullets == 1);
+    CHECK_FALSE(ParseConfig("mod_magic_bullets = 2\n", c).ok);
+}

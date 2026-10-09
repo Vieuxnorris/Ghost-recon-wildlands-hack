@@ -5,7 +5,7 @@ namespace grw {
 
 struct Line {
     uint16_t len = 0;
-    char text[510];
+    char text[1022];  // aim_tick reaches ~600 bytes
 };
 
 // Builds one JSON object + '\n' in a fixed buffer, without allocating. A field that does not fit is

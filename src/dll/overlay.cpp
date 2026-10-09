@@ -59,7 +59,7 @@ void CreateRtv(IDXGISwapChain* sc) {
     back->Release();
 }
 
-bool Init(IDXGISwapChain* sc) {
+bool Init(IDXGISwapChain* sc, void (*setup)()) {
     if (FAILED(sc->GetDevice(IID_PPV_ARGS(&g_dev)))) return false;  // not D3D11 (e.g. D3D12)
     g_dev->GetImmediateContext(&g_ctx);
     DXGI_SWAP_CHAIN_DESC sd{};
@@ -71,6 +71,7 @@ bool Init(IDXGISwapChain* sc) {
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
     ImGui::StyleColorsDark();
+    if (setup) setup();
     if (!ImGui_ImplWin32_Init(g_hwnd)) {
         ImGui::DestroyContext();
         return false;
@@ -110,13 +111,13 @@ void NewFrame() {
 
 }  // namespace
 
-bool Frame(IDXGISwapChain* sc, void (*draw)(), bool render) {
+bool Frame(IDXGISwapChain* sc, void (*setup)(), void (*draw)(), bool render) {
     if (g_release_requested.load(std::memory_order_acquire)) {
         BeforeResize();
         g_released.store(true, std::memory_order_release);
         return g_state == State::Ready;
     }
-    if (g_state == State::Uninit) g_state = Init(sc) ? State::Ready : State::Failed;
+    if (g_state == State::Uninit) g_state = Init(sc, setup) ? State::Ready : State::Failed;
     if (g_state != State::Ready || !g_rtv) return g_state == State::Ready;
 
     NewFrame();

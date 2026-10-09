@@ -149,12 +149,14 @@ LosVerdict LineOfSight::Check(const Vec3& origin, const Vec3* player_feet, const
     LosVerdict v;
     v.t_ms = Clock::NowMs();
     const Vec3 to = r.point;
-    const Vec3 d = to - origin;
+    const Vec3 start = r.has_from ? r.from : origin;
+    if (r.has_from) player_feet = nullptr;  // far from the player: nothing of its own on the way
+    const Vec3 d = to - start;
     const float len = d.Length();
     if (len < 0.01f) return v;
     const Vec3 dir = d * (1.0f / len);
     v.target_dist = len;
-    Vec3 from = origin;
+    Vec3 from = start;
     float travelled = 0;
     for (int attempt = 0; attempt < 6; ++attempt) {
         const double t0 = Clock::NowMs();
@@ -187,7 +189,7 @@ LosVerdict LineOfSight::Check(const Vec3& origin, const Vec3* player_feet, const
                 v.state = game::kLosVisible;
                 return v;
             }
-            from = origin + dir * travelled;
+            from = start + dir * travelled;
             continue;
         }
         // the target's own hitboxes (material 8: shoulder, arm, gear in front of the head) are the target

@@ -26,7 +26,11 @@ bool SameVec(const Vec3& a, const Vec3& b) { return a.x == b.x && a.y == b.y && 
 // a frame or two), so distance / delay estimates the bullet speed of the weapon in hand.
 void Aimbot::TrackKills(const game::EspFrame& f, double now, Telemetry& tel, uint64_t frame) {
     const bool down = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-    if (down && !fire_down_) last_shot_ms_ = now;
+    if (down && !fire_down_) {
+        last_shot_ms_ = now;
+        shot_target_ = status_.target;
+        shot_flight_ms_ = status_.flight_ms;
+    }
     fire_down_ = down;
     for (const game::EspItem& it : f.items) {
         auto [slot, fresh] = last_cat_.try_emplace(it.addr, it.cat);
@@ -38,11 +42,14 @@ void Aimbot::TrackKills(const game::EspFrame& f, double now, Telemetry& tel, uin
                     .Str("was", game::CategoryName(slot->second))
                     .Num("dist", it.dist)
                     .Num("shot_to_dead_ms", dt)
+                    .Num("pred_ms", it.addr == shot_target_ ? double(shot_flight_ms_) : -1.0)  // the aim's, at the shot
                     .Num("speed_est", it.dist / (dt / 1000.0))
                     .Num("fov", f.fov_deg)
                     .Bool("locked", it.addr == status_.target)
                     .Num("weapon_speed", f.weapon_speed)
                     .Num("weapon_damage", f.weapon_damage)
+                    .Num("bullet_V", f.bullet_V)
+                    .Num("spread", f.spread)
                     .Finish();
                 tel.Push(Channel::Render, l);
             }
@@ -53,7 +60,7 @@ void Aimbot::TrackKills(const game::EspFrame& f, double now, Telemetry& tel, uin
 }
 
 void Aimbot::Update(const game::EspFrame& f, const Config& c, Telemetry& tel, uint64_t frame,
-                    const TrajectoryTable* tab, const BulletKey& key) {
+                    const TrajectoryTable* tab, const BulletKey& key, const SpeedCurve* curve) {
     status_.table_max_m = tab ? tab->MaxAlong() : 0;
     status_.bullet = tab ? key : BulletKey{};
     const double now = Clock::NowMs();
@@ -113,6 +120,8 @@ void Aimbot::Update(const game::EspFrame& f, const Config& c, Telemetry& tel, ui
         if (candidates_[i].id == id) target = items_[i];
     status_.target = target ? target->addr : 0;
     if (!target) return;
+    status_.target_head = target->head_world;
+    status_.target_vel = target->addr == vel_target_ ? vel_ : Vec3{};
 
     // One correction per new camera picture: the camera shows a write one frame later, and correcting the
     // same picture twice overshoots (FC6 lesson).
@@ -129,11 +138,23 @@ void Aimbot::Update(const game::EspFrame& f, const Config& c, Telemetry& tel, ui
         const float dts = float((now - vel_last_ms_) / 1000.0);
         const Vec3 inst = (target->head_world - vel_last_pos_) * (1.0f / dts);
         const float k = 1.0f - std::exp(-dts / 0.15f);
-        if (inst.Length() < 15.0f) vel_ = vel_ + (inst - vel_) * k;  // ignore teleports
+        // ignore teleports (vehicles reach 50+ m/s: a lower cap left them without lead)
+        if (inst.Length() < 60.0f) vel_ = vel_ + (inst - vel_) * k;
     }
     if (vel_last_ms_ == 0 || now - vel_last_ms_ > 1.0) {
         vel_last_pos_ = target->head_world;
         vel_last_ms_ = now;
+    }
+    const Vec3 player = f.player_head_ok ? f.player_head : f.camera.pos;
+    if (pvel_last_ms_ > 0 && now - pvel_last_ms_ > 1000.0) pvel_ = {}, pvel_last_ms_ = 0;  // a gap: start again
+    if (pvel_last_ms_ > 0 && now - pvel_last_ms_ > 1.0) {
+        const float dts = float((now - pvel_last_ms_) / 1000.0);
+        const Vec3 inst = (player - pvel_last_pos_) * (1.0f / dts);
+        if (inst.Length() < 60.0f) pvel_ = pvel_ + (inst - pvel_) * (1.0f - std::exp(-dts / 0.15f));
+    }
+    if (pvel_last_ms_ == 0 || now - pvel_last_ms_ > 1.0) {
+        pvel_last_pos_ = player;
+        pvel_last_ms_ = now;
     }
 
     Ballistics bal;
@@ -142,21 +163,72 @@ void Aimbot::Update(const game::EspFrame& f, const Config& c, Telemetry& tel, ui
     bal.zero_m = c.aim_zero_m;
     float flight_s = 0;
     Vec3 aim_point;
+    // The bullets start at the player's head in third person (at the camera through a scope): distances and the
+    // drop's plane are measured from there; the crosshair is still turned from the camera.
+    const Vec3 origin = f.player_head_ok ? f.player_head : f.camera.pos;
+    // The game's speed law (trajectory.h): V from the weapon's ballistics block, the launch vector's length from
+    // its spread and the distance to the aimed point.
+    FlightModel fm;
+    if (f.bullet_ok && curve) {
+        fm.V = f.bullet_V;
+        fm.curve = curve;
+        // the spread the next shot will use: the live attribute (the component holds the last shot's), with
+        // the spread mod the shot will get
+        const float spread = f.weapon.spread_live >= 0 ? f.weapon.spread_live : f.spread_ok ? f.spread : 0.0f;
+        fm.spread = spread * f.weapon.spread_factor;
+        if (f.spread_ok) fm.spread_range = f.spread_range;
+    }
     // The bullet path learned from the player's own shots (the game's real one); physics with the configured
     // speed as a fallback, or when aim_bullet_speed forces it.
     TableAim ta;
     const Vec3 lead = c.aim_lead ? vel_ : Vec3{};
-    if (c.aim_bullet_speed <= 0 && tab && TableAimPoint(f.camera.pos, target->head_world, lead, *tab, ta)) {
+    status_.modelled = false;
+    status_.launch_len = 1;
+    if (f.bullet_straight && fm.Valid()) {
+        // straight bullets (the mod): no drop, straight at the head, led by the flight at the speed after the
+        // first step
+        status_.launch_len = LaunchLength(fm.spread, fm.spread_range, (target->head_world - origin).Length());
+        bal.speed = fm.V * curve->Lookup(std::acos(std::fmin(1.0f, status_.launch_len)) * 57.29578f);
+        bal.gravity = 0;
+        bal.zero_m = 0;
+        status_.cruise_mps = bal.speed;
+        aim_point = BallisticAimPoint(origin, target->head_world, lead, bal, &flight_s);
+        if (f.bullet_teleport) {
+            // a wait for the first step, the first segment, then one hop per step
+            const float d = (target->head_world - origin).Length();
+            const float hops = std::ceil(std::fmax(0.0f, d - f.bullet_first_segment) / game::kTeleportChunkM);
+            flight_s = (2.0f + hops) * game::kSimStepS;
+            aim_point = target->head_world + lead * flight_s;
+        }
+        status_.drop_m = 0;
+        status_.trajectory = 3;
+    } else if (c.aim_bullet_speed <= 0 && tab && TableAimPoint(origin, target->head_world, lead, *tab, ta, &fm)) {
         aim_point = ta.point;
         flight_s = ta.flight_s;
         status_.drop_m = ta.drop_m;
         status_.trajectory = ta.extrapolated ? 2 : 1;
+        status_.modelled = ta.modelled;
+        status_.launch_len = ta.launch_len;
+        status_.cruise_mps = fm.Valid() ? fm.V * curve->Lookup(std::acos(std::fmin(1.0f, ta.launch_len)) * 57.29578f) : 0;
     } else {
-        aim_point = BallisticAimPoint(f.camera.pos, target->head_world, lead, bal, &flight_s);
+        // no path learned for these bullets yet: their speed after the first step, straight (gravity beyond)
+        if (c.aim_bullet_speed <= 0 && fm.Valid()) {
+            status_.launch_len = LaunchLength(fm.spread, fm.spread_range, (target->head_world - origin).Length());
+            bal.speed = fm.V * curve->Lookup(std::acos(std::fmin(1.0f, status_.launch_len)) * 57.29578f);
+        }
+        status_.cruise_mps = bal.speed;
+        aim_point = BallisticAimPoint(origin, target->head_world, lead, bal, &flight_s);
         status_.drop_m = 0;
         status_.trajectory = 0;
     }
     status_.flight_ms = flight_s * 1000.0f;
+    // The controller closes the error by 1 - exp(-dt/tau) per picture: across the view, a moving target stays about
+    // dt / (1 - exp(-dt/tau)) behind (~80 ms by default: 0.15 deg, 1.3 m, behind a car at 500 m, measured). Aim that
+    // much further along its motion relative to the player.
+    const float dt = float(since > 100.0 || last_write_ms_ == 0 ? 16.0 : since);
+    const float lag_s = c.aim_tau_ms > 0 ? dt / 1000.0f / (1.0f - std::exp(-dt / c.aim_tau_ms)) : 0.0f;
+    if (c.aim_lead) aim_point = aim_point + (vel_ - pvel_) * lag_s;
+    status_.lag_ms = lag_s * 1000.0f;
     const Angles want = DirectionToAngles(aim_point - f.camera.pos);
     const Angles err = AngleDelta(aim_view, want);
     status_.error_deg = RadToDeg(std::sqrt(err.yaw * err.yaw + err.pitch * err.pitch));
@@ -166,7 +238,6 @@ void Aimbot::Update(const game::EspFrame& f, const Config& c, Telemetry& tel, ui
     ap.tau_ms = c.aim_tau_ms;
     ap.deadzone_rad = HeadDeadzoneRad(kHeadRadiusM, target->dist, c.aim_deadzone_frac);
     ap.max_speed_rad_s = DegToRad(c.aim_max_speed_deg_s);
-    const float dt = float(since > 100.0 || last_write_ms_ == 0 ? 16.0 : since);
     const Angles step = AimStep(err, dt, ap);
 
     float yaw = f.aim.yaw + step.yaw;
@@ -203,7 +274,14 @@ void Aimbot::Update(const game::EspFrame& f, const Config& c, Telemetry& tel, ui
         .Int("traj", status_.trajectory)
         .Num("drop_m", status_.drop_m)
         .Num("table_max", status_.table_max_m)
+        .Bool("model", status_.modelled)
+        .Num("launch_len", status_.launch_len)
+        .Num("bullet_V", f.bullet_V)
+        .Num("spread", f.spread)
+        .Bool("origin_head", f.player_head_ok)
         .Num("lead_speed", vel_.Length())
+        .Num("player_speed", pvel_.Length())
+        .Num("lag_ms", status_.lag_ms)
         .Num("fov", f.fov_deg)
         .Num("dt", dt)
         .Bool("new_picture", new_picture)

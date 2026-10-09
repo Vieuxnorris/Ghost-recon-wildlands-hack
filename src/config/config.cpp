@@ -71,10 +71,39 @@ bool Assign(Config& c, std::string_view key, std::string_view v) {
     if (key == "los_interval_ms")
         return ParseInt(v, c.los_interval_ms) && c.los_interval_ms >= 5 && c.los_interval_ms <= 1000;
     if (key == "los_debug") return ParseInt(v, c.los_debug) && (c.los_debug == 0 || c.los_debug == 1);
+    if (key == "magic_debug") return ParseInt(v, c.magic_debug) && (c.magic_debug == 0 || c.magic_debug == 1);
     if (key == "los_flag") return ParseInt(v, c.los_flag) && (c.los_flag == 0 || c.los_flag == 1);
     if (key == "los_mask") return ParseU64(v, c.los_mask) && c.los_mask != 0;
     if (key == "los_max_rays") return ParseInt(v, c.los_max_rays) && c.los_max_rays >= 1 && c.los_max_rays <= 256;
     if (key == "proj_track") return ParseInt(v, c.proj_track) && c.proj_track >= 0 && c.proj_track <= 2;
+    if (key == "mod_spread") return ParseFloat(v, c.mod_spread) && c.mod_spread >= 0.0f && c.mod_spread <= 4.0f;
+    if (key == "mod_bullet_speed")
+        return ParseFloat(v, c.mod_bullet_speed) && c.mod_bullet_speed >= 0.1f && c.mod_bullet_speed <= 10.0f;
+    if (key == "mod_damage") return ParseFloat(v, c.mod_damage) && c.mod_damage >= 0.0f && c.mod_damage <= 100.0f;
+    if (key == "mod_recoil") return ParseFloat(v, c.mod_recoil) && c.mod_recoil >= 0.0f && c.mod_recoil <= 4.0f;
+    if (key == "mod_instant_bullets")
+        return ParseInt(v, c.mod_instant_bullets) && c.mod_instant_bullets >= 0 && c.mod_instant_bullets <= 1;
+    if (key == "mod_bullets_per_shot")
+        return ParseInt(v, c.mod_bullets_per_shot) && c.mod_bullets_per_shot >= 1 && c.mod_bullets_per_shot <= 32;
+    if (key == "mod_infinite_ammo")
+        return ParseInt(v, c.mod_infinite_ammo) && (c.mod_infinite_ammo == 0 || c.mod_infinite_ammo == 1);
+    if (key == "mod_straight_bullets")
+        return ParseInt(v, c.mod_straight_bullets) && c.mod_straight_bullets >= 0 && c.mod_straight_bullets <= 1;
+    if (key == "mod_teleport_bullets")
+        return ParseInt(v, c.mod_teleport_bullets) && c.mod_teleport_bullets >= 0 && c.mod_teleport_bullets <= 1;
+    if (key == "mod_magic_bullets")
+        return ParseInt(v, c.mod_magic_bullets) && c.mod_magic_bullets >= 0 && c.mod_magic_bullets <= 1;
+    if (key == "magic_target") return ParseInt(v, c.magic_target) && (c.magic_target == 0 || c.magic_target == 1);
+    if (key == "magic_spread") return ParseInt(v, c.magic_spread) && (c.magic_spread == 0 || c.magic_spread == 1);
+    if (key == "magic_fov_deg")
+        return ParseFloat(v, c.magic_fov_deg) && c.magic_fov_deg >= 1.0f && c.magic_fov_deg <= 180.0f;
+    if (key == "magic_max_m") return ParseFloat(v, c.magic_max_m) && c.magic_max_m >= 10.0f && c.magic_max_m <= 5000.0f;
+    if (key == "magic_walls") return ParseInt(v, c.magic_walls) && (c.magic_walls == 0 || c.magic_walls == 1);
+    if (key == "magic_start_m")
+        return ParseFloat(v, c.magic_start_m) && c.magic_start_m >= 2.0f && c.magic_start_m <= 40.0f;
+    if (key == "magic_vertical_est")
+        return ParseInt(v, c.magic_vertical_est) && (c.magic_vertical_est == 0 || c.magic_vertical_est == 1);
+    if (key == "magic_pierce") return ParseInt(v, c.magic_pierce) && (c.magic_pierce == 0 || c.magic_pierce == 1);
     if (key == "esp_max_distance_m") return ParseFloat(v, c.esp_max_distance_m);
     if (key == "esp_enabled") return ParseInt(v, c.esp_enabled);
     if (key == "esp_key") return ParseInt(v, c.esp_key);
@@ -114,8 +143,7 @@ ParseResult ParseConfig(std::string_view text, Config& inout) {
     return {};
 }
 
-std::string DefaultConfigText() {
-    const Config d;
+std::string ConfigText(const Config& d) {
     std::ostringstream s;
     s << "# grw.ini - reloaded automatically when saved. Keys are Windows virtual-key codes.\n"
       << "menu_key = 0x" << std::hex << d.menu_key << "\n"
@@ -153,13 +181,59 @@ std::string DefaultConfigText() {
       << "los_flag = " << d.los_flag << "\n"
       << "# learn bullet paths from the player's shots: 0 off, 1 always, 2 only while useful\n"
       << "proj_track = " << d.proj_track << "\n"
+      << "# weapon mods, factors of the game's values (1 = unchanged): spread at each shot (0 = none, the bullets\n"
+      << "# then also fly at full speed), bullet speed, damage per bullet. Also adjustable in the menu.\n"
+      << "mod_spread = " << d.mod_spread << "\n"
+      << "mod_bullet_speed = " << d.mod_bullet_speed << "\n"
+      << "mod_recoil = " << d.mod_recoil << "\n"
+      << "# 1 = the bullets reach their target almost at once (30000 m/s), whatever mod_bullet_speed says\n"
+      << "mod_instant_bullets = " << d.mod_instant_bullets << "\n"
+      << "# 1 = firing consumes no ammo and reloads are free (the game's own flag: every weapon, the NPCs' too)\n"
+      << "mod_infinite_ammo = " << d.mod_infinite_ammo << "\n"
+      << "# 1..32 bullets per shot of the player's weapon (with magic bullets and spread 1: one per enemy)\n"
+      << "mod_bullets_per_shot = " << d.mod_bullets_per_shot << "\n"
+      << "# 1 = no drop: the bullets fly in a straight line (with instant bullets: a laser)\n"
+      << "mod_straight_bullets = " << d.mod_straight_bullets << "\n"
+      << "# 1 = the bullets hit at once along that straight line, to the weapon's range (a hitscan)\n"
+      << "mod_teleport_bullets = " << d.mod_teleport_bullets << "\n"
+      << "# 1 = while the aim holds a target, the bullets jump to its head through vehicles and walls\n"
+      << "mod_magic_bullets = " << d.mod_magic_bullets << "\n"
+      << "# magic bullets: target 0 = the aim's locked target, 1 = any enemy; spread 1 = one bullet per enemy;\n"
+      << "# fov (deg) and max distance (m) of the targets; walls 1 = look for a clear way to each head;\n"
+      << "# start_m = length of the last test before the head; vertical_est 1 = a head not read: from above;\n"
+      << "# pierce 1 = through anything on the way (vehicles' bodies, walls)\n"
+      << "magic_target = " << d.magic_target << "\n"
+      << "magic_spread = " << d.magic_spread << "\n"
+      << "magic_fov_deg = " << d.magic_fov_deg << "\n"
+      << "magic_max_m = " << d.magic_max_m << "\n"
+      << "magic_walls = " << d.magic_walls << "\n"
+      << "magic_start_m = " << d.magic_start_m << "\n"
+      << "magic_vertical_est = " << d.magic_vertical_est << "\n"
+      << "magic_pierce = " << d.magic_pierce << "\n"
+      << "mod_damage = " << d.mod_damage << "\n"
       << "# 0 = hooks only, 1 = ImGui frame without rendering, 2 = full overlay\n"
       << "overlay_mode = " << d.overlay_mode << "\n"
       << "# read at injection: 0 = inline patch (MinHook), 1 = dxgi vtable slots,\n"
       << "# diagnostics: 2 = throwaway swap chain only, no hooks; 3 = nothing (threads only)\n"
-      << "hook_method = " << d.hook_method << "\n";
+      << "hook_method = " << d.hook_method << "\n"
+      << "# research (0 = off): hardware breakpoints, bullet probe, ray tests\n"
+      << "hwbp_addr = 0x" << std::hex << d.hwbp_addr << "\n"
+      << "hwbp_addr2 = 0x" << d.hwbp_addr2 << "\n"
+      << "hwbp_addr3 = 0x" << d.hwbp_addr3 << "\n"
+      << "hwbp_addr4 = 0x" << d.hwbp_addr4 << std::dec << "\n"
+      << "hwbp_read = " << d.hwbp_read << "\n"
+      << "hwbp_len = " << d.hwbp_len << "\n"
+      << "hwbp_max_hits = " << d.hwbp_max_hits << "\n"
+      << "hwbp_trigger = " << d.hwbp_trigger << "\n"
+      << "hwbp_window_ms = " << d.hwbp_window_ms << "\n"
+      << "bullet_probe = " << d.bullet_probe << "\n"
+      << "los_test = " << d.los_test << "\n"
+      << "los_debug = " << d.los_debug << "\n"
+      << "magic_debug = " << d.magic_debug << "\n";
     return s.str();
 }
+
+std::string DefaultConfigText() { return ConfigText(Config{}); }
 
 ConfigStore::ConfigStore(std::wstring path) : path_(std::move(path)) {}
 
@@ -170,7 +244,7 @@ ReloadResult ConfigStore::Poll() {
         if (!GetFileAttributesExW(path_.c_str(), GetFileExInfoStandard, &attr))
             return {ReloadResult::Error, {false, 0, "cannot create config file"}};
     }
-    if (loaded_once_ && CompareFileTime(&attr.ftLastWriteTime, &last_write_) == 0) return {};
+    if (loaded_once_ && CompareFileTime(&attr.ftLastWriteTime, &last_write_) == 0 && !force_.exchange(false)) return {};
     last_write_ = attr.ftLastWriteTime;
     loaded_once_ = true;
 
@@ -183,6 +257,23 @@ ReloadResult ConfigStore::Poll() {
     current_ = next;
     ReleaseSRWLockExclusive(&lock_);
     return {ReloadResult::Applied, r};
+}
+
+void ConfigStore::Set(const Config& c) {
+    AcquireSRWLockExclusive(&lock_);
+    current_ = c;
+    ReleaseSRWLockExclusive(&lock_);
+}
+
+bool ConfigStore::Save() {
+    const std::string text = ConfigText(Snapshot());
+    const std::wstring tmp = path_ + L".tmp";
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        out << text;
+        if (!out) return false;
+    }
+    return MoveFileExW(tmp.c_str(), path_.c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
 }
 
 Config ConfigStore::Snapshot() const {

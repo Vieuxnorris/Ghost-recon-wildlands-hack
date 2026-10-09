@@ -18,6 +18,8 @@ struct LosRequest {
     bool vehicle = false;
     bool enemy = false;
     float angle = 0;  // radians from the view axis (priority)
+    bool has_from = false;  // an origin of its own (a magic bullet's approach), else the submitted one
+    Vec3 from;
 };
 
 struct LosVerdict {

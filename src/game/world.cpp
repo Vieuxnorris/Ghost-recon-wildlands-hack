@@ -1,4 +1,5 @@
 #include "game/world.h"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -262,13 +263,19 @@ uintptr_t Resolve(uintptr_t handle) {
 void World::ReadWeapon(EspFrame& out) const {
     out.weapon_speed = out.weapon_damage = 0;
     out.weapon_id = 0;
+    out.bullet_ok = out.spread_ok = false;
+    out.weapon = WeaponView{};
+    out.weapon_state = r_weapon_state_;
     if (!r_weapon_state_) return;
     uintptr_t h = 0, w = 0, dh = 0, d = 0;
     uint64_t vt = 0;
     if (!mem::Read(r_weapon_state_ + kWeaponStateWeaponOff, h) || !(w = Resolve(h))) return;
     if (!mem::Read(w, vt) || vt != base_ + kWeaponVtableRva) return;
+    out.weapon.logic = w;
+    ReadBullets(w, out);
     if (!mem::Read(w + kWeaponDataOff, dh) || !(d = Resolve(dh))) return;
     if (!mem::Read(d, vt) || vt != base_ + kWeaponDataVtableRva) return;
+    ReadWeaponView(w, d, out);
     out.weapon_id = uint64_t(w) * 31 + d;
     float speed = 0, damage = 0;
     if (mem::Read(d + kWeaponDataSpeedOff, speed) && std::isfinite(speed) && speed > 10 && speed < 3000)
@@ -276,8 +283,121 @@ void World::ReadWeapon(EspFrame& out) const {
     if (mem::Read(d + kWeaponDataDamageOff, damage) && std::isfinite(damage)) out.weapon_damage = damage;
 }
 
+namespace {
+// A game string {u32 length, u32 capacity, u32, UTF-8} into dst (cut, always terminated).
+bool ReadGameString(uintptr_t s, char* dst, size_t cap) {
+    uint32_t len = 0;
+    dst[0] = 0;
+    if (!s || !mem::Read(s, len) || len == 0 || len > 256) return false;
+    const size_t n = std::min<size_t>(len, cap - 1);
+    if (!mem::Read(s + kGameStringTextOff, dst, n)) return false;
+    dst[n] = 0;
+    return true;
+}
+}  // namespace
+
+// Weapon w with design data d: its parts' names (every 500 ms), the menu's stats, damage, magazine and the
+// shooter's live spread (model.h).
+void World::ReadWeaponView(uintptr_t w, uintptr_t d, EspFrame& out) const {
+    WeaponView& v = out.weapon;
+    // names: rarely change, and 16 strings
+    const double now = Clock::NowMs();
+    if (w != names_weapon_ || now - names_ms_ > 500.0) {
+        names_weapon_ = w;
+        names_ms_ = now;
+        names_ = WeaponView{};
+        uintptr_t h = 0, t = 0;
+        uint64_t vt = 0;
+        if (mem::Read(w + kWeaponPartNamesOff, h) && (t = Resolve(h))) {
+            while (mem::Read(t - kPartRowStride, vt) && vt == base_ + kPartRowVtableRva) t -= kPartRowStride;
+            for (uint32_t i = 0; i < kMaxParts && mem::Read(t, vt) && vt == base_ + kPartRowVtableRva;
+                 ++i, t += kPartRowStride) {
+                uintptr_t label = 0, name = 0;
+                mem::Read(t + kPartRowLabelOff, label);
+                mem::Read(t + kPartRowNameOff, name);
+                ReadGameString(label, names_.slot[i], sizeof names_.slot[i]);
+                ReadGameString(name, names_.part[i], sizeof names_.part[i]);
+                names_.parts = i + 1;
+            }
+            names_.parts_ok = names_.parts > 0;
+        }
+    }
+    v.parts_ok = names_.parts_ok;
+    v.parts = names_.parts;
+    std::memcpy(v.slot, names_.slot, sizeof v.slot);
+    std::memcpy(v.part, names_.part, sizeof v.part);
+    // stats: D's base, the parts' summed {add, mul}
+    uintptr_t mods = 0;
+    float pairs[2 * kStatCount];
+    if (mem::Read(d + kDataStatsOff, v.base, sizeof v.base) && mem::Read(d + kDataModsOff, mods) && mods &&
+        mem::Read(mods + kModsStatPairsOff, pairs, sizeof pairs)) {
+        v.stats_ok = true;
+        for (size_t i = 0; i < kStatCount; ++i) {
+            v.add[i] = pairs[2 * i];
+            v.mul[i] = pairs[2 * i + 1];
+            if (!std::isfinite(v.base[i]) || !std::isfinite(v.add[i]) || !std::isfinite(v.mul[i])) v.stats_ok = false;
+        }
+    }
+    uintptr_t mh = 0, mag = 0;
+    int32_t rounds = 0;
+    if (mem::Read(d + kDataMagazineOff, mh) && (mag = Resolve(mh)) && mem::Read(mag + kMagazineRoundsOff, rounds) &&
+        rounds > 0 && rounds < 1000)
+        v.magazine = rounds;
+    // the spread the next shot will use: attribute 0x48, republished by the game at every update
+    uintptr_t root = 0, container = 0, entries = 0, attr = 0;
+    uint64_t vt = 0;
+    float spread = 0;
+    if (mem::Read(base_ + kAttrRootRva, root) && root && mem::Read(root + kAttrContainerOff, container) && container &&
+        mem::Read(container, entries) && entries &&
+        mem::Read(entries + uintptr_t(kAttrSpreadId) * kAttrEntryStride, attr) && attr && mem::Read(attr, vt) &&
+        vt == base_ + kAttrValueVtableRva && mem::Read(attr + kAttrValueOff, spread) && std::isfinite(spread) &&
+        spread >= 0 && spread < 10)
+        v.spread_live = spread;
+}
+
+// The bullets of weapon w: its ballistics block and its shooter's spread (model.h).
+void World::ReadBullets(uintptr_t w, EspFrame& out) const {
+    uintptr_t m = 0, sh = 0, s = 0, a = 0;
+    uint64_t vt = 0;
+    float v[2];
+    if (mem::Read(w + kWeaponBallisticsOff, m) && m && mem::Read(m, vt) && vt == base_ + kBallisticsVtableRva &&
+        mem::Read(m + kBallisticsSpeedOff, v[0]) && mem::Read(m + kBallisticsFirstSegmentOff, v[1]) &&
+        std::isfinite(v[0]) && v[0] > 10 && v[0] < kMaxBulletSpeed && std::isfinite(v[1]) && v[1] >= 0 && v[1] < kMaxFirstSegment) {
+        out.bullet_ok = true;
+        out.bullet_V = v[0];
+        out.bullet_V_block = v[0];
+        out.bullet_first_segment = v[1];
+        out.weapon.ballistics = m;
+        float dmg = 0;
+        if (mem::Read(m + kBallisticsDamageOff, dmg) && std::isfinite(dmg) && dmg >= 0) out.weapon.damage = dmg;
+    }
+    if (mem::Read(w + kWeaponShooterOff, sh) && (s = Resolve(sh)) && mem::Read(s, vt) &&
+        vt == base_ + kShooterVtableRva && (out.weapon.shooter = s) && mem::Read(s + kShooterSpreadOff, a) && a &&
+        mem::Read(a, vt) &&
+        vt == base_ + kSpreadVtableRva && mem::Read(a + kSpreadValueOff, v[0]) &&
+        mem::Read(a + kSpreadRangeOff, v[1]) && std::isfinite(v[0]) && std::isfinite(v[1])) {
+        out.spread_ok = true;
+        out.spread = v[0];
+        out.spread_range = v[1];
+        out.weapon.spread_comp = a;
+        // the request: what the bullets will really use
+        uintptr_t rq = 0;
+        float rv[3];
+        if (mem::Read(s + kShooterRequestOff, rq) && rq && mem::Read(rq, vt) && vt == base_ + kRequestVtableRva &&
+            mem::Read(rq + kRequestSpeedOff, rv, sizeof rv) && std::isfinite(rv[0]) && rv[0] > 10 && rv[0] < kMaxBulletSpeed &&
+            std::isfinite(rv[2]) && rv[2] >= 0 && rv[2] < kMaxFirstSegment) {
+            out.weapon.request = rq;
+            out.bullet_ok = true;
+            out.bullet_V = rv[0];
+            out.bullet_first_segment = rv[2];
+        }
+    }
+    out.bullet_V_table = out.bullet_V;
+}
+
 void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) {
     out.items.clear();
+    out.offscreen.clear();
     out.camera_ok = false;
     out.player_ok = false;
     out.player_head_ok = false;
@@ -356,10 +476,23 @@ void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) 
         if (cat == Category::Dead && !opt.dead) continue;
         ++out.active;
 
+        const bool enemy = cat == Category::SantaBlanca || cat == Category::Unidad;
         Vec2 sf;
         float depth;
-        if (!Project(cam, feet, opt.width, opt.height, sf, depth)) continue;
-        if (sf.x < -200 || sf.x > opt.width + 200 || sf.y < -200 || sf.y > opt.height + 400) continue;
+        if (!Project(cam, feet, opt.width, opt.height, sf, depth) ||
+            sf.x < -200 || sf.x > opt.width + 200 || sf.y < -200 || sf.y > opt.height + 400) {
+            EspFrame::OffscreenChar o{a, feet, cat, flags_ok && (flags & kFlagVehicle) != 0, false, {}};
+            uintptr_t bones_ptr;
+            Vec3 head_m, crown_m;
+            if (opt.enemy_heads && enemy && pose && mem::Read(pose + kPoseBonesOff, bones_ptr) &&
+                mem::Read(bones_ptr, bones_.data(), bones_.size() * sizeof(float)) &&
+                HeadFromBones(bones_.data(), kBonesRead, head_m, crown_m)) {
+                o.head_ok = true;
+                o.head = m.ToWorld(head_m);
+            }
+            out.offscreen.push_back(o);
+            continue;
+        }
         ++out.on_screen;
 
         EspItem it;
@@ -374,7 +507,8 @@ void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) 
         // Bones (4 KB per character) only where a head is worth drawing or aiming at: near, or close to the
         // crosshair (the aim's cone plus a margin). Far ones elsewhere get a box from the feet.
         const Vec3 to_chest = feet + Vec3{0, 0, 1.4f} - cam.pos;
-        const bool want_head = dist <= opt.heads_within_m || to_chest.Dot(cam.forward) >= cos_head_cone * to_chest.Length();
+        const bool want_head = dist <= opt.heads_within_m || (opt.enemy_heads && enemy) ||
+                               to_chest.Dot(cam.forward) >= cos_head_cone * to_chest.Length();
         const StageSpan bone_span;
         uintptr_t bones_ptr;
         if (want_head && pose && mem::Read(pose + kPoseBonesOff, bones_ptr) &&

@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <atomic>
 #include <string>
 #include <string_view>
 
@@ -46,10 +47,33 @@ struct Config {
     unsigned long long los_mask = 0x3115fd67full;
     int los_flag = 0;  // the filter context's flag: 1 like the bullets, which then miss the vehicles
     int los_debug = 0;  // research: los_detail / los_hit telemetry
+    int magic_debug = 0;  // research: 1 = magic_seg / magic_hit / magic_kept lines (each magic bullet's collision test)
     // Learn the bullet paths from the player's projectiles (instruction breakpoint on DR1, one exception per
     // simulation step of every projectile in the game): 0 = off, 1 = always, 2 = only while learning is useful
     // (weapon in hand not fired yet since injection, no learned path, or aiming beyond the learned range).
     int proj_track = 2;
+    // Weapon mods (offline, the player's weapon only), as factors of the game's values: 1 = unchanged.
+    // mod_spread scales the spread at each shot (instruction breakpoint): 0 = none at all, and then the bullets
+    // also fly at full speed (camera-findings.md section 7b). The other two rewrite the weapon's ballistics block.
+    float mod_spread = 1.0f;
+    float mod_bullet_speed = 1.0f;
+    float mod_damage = 1.0f;
+    float mod_recoil = 1.0f;  // the camera's recoil, scaled every frame (instruction breakpoint): 0 = none
+    int mod_instant_bullets = 0;  // 1 = the bullets fly at kInstantBulletSpeed (overrides mod_bullet_speed)
+    int mod_infinite_ammo = 0;    // 1 = firing consumes no ammo, reloads are free (the game's own flag: every weapon)
+    int mod_bullets_per_shot = 1;  // 1..32: each shot of the player's weapon fires this many bullets (a shotgun's way)
+    int mod_straight_bullets = 0;  // 1 = no drop: the player's bullets fly in a straight line (tracker breakpoint)
+    int mod_teleport_bullets = 0;  // 1 = they reach the end of that line at their first step (a hitscan)
+    int mod_magic_bullets = 0;  // 1 = the bullets jump to their targets' heads (the magic_* options)
+    // Magic bullets: 0 = the aim's locked target only (aim key held), 1 = any enemy (no aiming needed).
+    int magic_target = 1;
+    int magic_spread = 1;           // 1 = one bullet per enemy in turn, 0 = every bullet on the best target
+    float magic_fov_deg = 180.0f;   // only targets this close to the crosshair (180 = all around)
+    float magic_max_m = 1200.0f;    // and this near (within the ESP's range: esp_max_distance_m)
+    int magic_walls = 1;            // 1 = look for a clear way to each head (from above, the sides): through walls
+    float magic_start_m = 12.0f;    // the last collision test starts this far from the head (outside its 10 m sphere)
+    int magic_vertical_est = 1;     // 1 = a head not read (far, off the screen) is tested from above, down its body
+    int magic_pierce = 1;           // 1 = they go through anything on the way (vehicles' bodies, walls), damage kept
     float esp_max_distance_m = 600.0f;
     int esp_enabled = 1;
     int esp_key = 0x75;  // VK_F6 toggles the ESP
@@ -72,6 +96,8 @@ struct ParseResult {
 // All or nothing: on error, inout is left untouched.
 ParseResult ParseConfig(std::string_view text, Config& inout);
 std::string DefaultConfigText();
+// The text of grw.ini for these values (every key, with its comment).
+std::string ConfigText(const Config& c);
 
 struct ReloadResult {
     enum Kind { Unchanged, Applied, Error } kind = Unchanged;
@@ -84,11 +110,16 @@ public:
     explicit ConfigStore(std::wstring path);
     ReloadResult Poll();
     Config Snapshot() const;
+    // Any thread: the values in use from now (the menu's edits); Save() writes them to the file.
+    void Set(const Config& c);
+    bool Save();
+    void Invalidate() { force_.store(true); }  // any thread: the next Poll reads the file even if unchanged
 
 private:
     std::wstring path_;
     FILETIME last_write_{};
     bool loaded_once_ = false;
+    std::atomic<bool> force_{false};
     Config current_;
     mutable SRWLOCK lock_ = SRWLOCK_INIT;
 };
