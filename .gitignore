@@ -6,7 +6,7 @@ out/
 *.obj
 
 # Runtime data
-telemetry/
+/telemetry/
 runtime/
 traces/*.jsonl
 !traces/fixtures/
