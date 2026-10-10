@@ -8,8 +8,7 @@ out/
 # Runtime data
 /telemetry/
 runtime/
-traces/*.jsonl
-!traces/fixtures/
+traces/
 
 # Never commit game files, dumps or RE databases
 *.exe.dump
@@ -17,6 +16,15 @@ traces/*.jsonl
 *.rep/
 *.CT
 
+# Private research: notes, logs and experiment scripts (kept locally)
+/docs/
+/MODLOG.md
+/MODDING_PLAN.md
+/tools/*
+!/tools/tail_telemetry.py
+/scripts/*
+!/scripts/build.ps1
 
 # Python
 __pycache__/
+*.pyc
