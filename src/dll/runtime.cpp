@@ -11,6 +11,8 @@
 #include "dll/overlay.h"
 #include "dll/hwbp.h"
 #include "dll/panel.h"
+#include "dll/raycast.h"
+#include "scan/regions.h"
 #include "telemetry/json_line.h"
 
 namespace grw {
@@ -46,6 +48,7 @@ bool Runtime::Start(const std::wstring& base_dir, SharedControl* control) {
 }
 
 void Runtime::Stop() {
+    StopStealth();
     RestoreDataMods();
     los_.Stop();
     world_.Stop();
@@ -139,6 +142,52 @@ void AlongMotion(hwbp::MagicTarget& t, int& way, const Vec3& vel, float start_m)
     t.before = start_m;
     t.after = start_m;
     way = 30;
+}
+
+// The map waypoint's position (model.h, kWaypointRootRva); false when the chain does not hold.
+bool ReadWaypoint(uintptr_t base, Vec3& out) {
+    uintptr_t root = 0, holder = 0, handle = 0, ent = 0, vt = 0;
+    int32_t cnt = 0;
+    if (!mem::Read(base + game::kWaypointRootRva, root) || !root || !mem::Read(root, vt) ||
+        vt != base + game::kWaypointRootVtableRva)
+        return false;
+    if (!mem::Read(root + game::kWaypointHolderOff, holder) || !holder || !mem::Read(holder, vt) ||
+        vt != base + game::kWaypointHolderVtableRva)
+        return false;
+    // weak handle {object, ..., i32 count at +0xC}: alive when the count is negative
+    if (!mem::Read(holder + game::kWaypointHandleOff, handle) || !handle || !mem::Read(handle, ent) || !ent ||
+        !mem::Read(handle + 0xC, cnt) || cnt >= 0 || !mem::Read(ent, vt) || vt != base + game::kEntityVtableRva)
+        return false;
+    float p[3];
+    if (!mem::Read(ent + game::kEntityPosOff, p, sizeof p)) return false;
+    out = {p[0], p[1], p[2]};
+    return game::PlausibleWaypoint(out);
+}
+
+// The tactical map's cursor (model.h, kMapCursorOff); false when the map is closed or the chain does not hold.
+bool ReadMapCursor(uintptr_t base, Vec3& out) {
+    uintptr_t root = 0, marker = 0, vt = 0;
+    if (!mem::Read(base + game::kWaypointRootRva, root) || !root || !mem::Read(root, vt) ||
+        vt != base + game::kWaypointRootVtableRva)
+        return false;
+    if (!mem::Read(root + game::kMapCursorOff, marker) || !marker || !mem::Read(marker, vt) ||
+        vt != base + game::kHudMarkerVtableRva)
+        return false;
+    float p[3];
+    if (!mem::Read(marker + game::kHudMarkerPosOff, p, sizeof p)) return false;
+    out = {p[0], p[1], p[2]};
+    return game::PlausibleWaypoint(out);  // (0, 0, 0) once the map is closed
+}
+
+// The teleport's ground rays: the line of sight's collision layers (terrain, buildings, vehicles; not the characters'
+// sensor spheres), vehicles blocking. ctx counts the rays.
+constexpr uint64_t kTpGroundMask = 0x3115fd67full;
+bool CastGround(void* ctx, const Vec3& from, const Vec3& to, float& hit_z) {
+    ++*static_cast<int*>(ctx);
+    const raycast::Result r = raycast::Cast(from, to, kTpGroundMask, false);
+    if (!r.ok || r.fault || !r.hit) return false;
+    hit_z = std::isfinite(r.pos.z) ? r.pos.z : from.z + (to.z - from.z) * r.fraction;
+    return true;
 }
 
 }  // namespace
@@ -475,9 +524,349 @@ void Runtime::UpdateMagic(const Config& cfg) {
     }
 }
 
+void Runtime::TpEvent(const char* event, const char* msg) {
+    tp_view_.phase = tp_.Phase();
+    std::snprintf(tp_view_.msg, sizeof tp_view_.msg, "%s", msg);
+    tp_view_.at_ms = Clock::NowMs();
+    Line l;
+    JsonLine(l, "tp", tel_->SinceStartMs(), Frame()).Str("event", event).Str("detail", msg).Finish();
+    tel_->Push(Channel::Render, l);
+}
+
+void Runtime::StartTeleport(double now_ms, const Vec3* cursor) {
+    if (!esp_.player_ok || !esp_.player_entity) return TpEvent("refused", "player not found");
+    if (esp_.player_flags & game::kFlagVehicle) return TpEvent("refused", "in a vehicle: get out first");
+    Vec3 wp;
+    if (cursor)
+        wp = *cursor;
+    else if (!ReadWaypoint(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)), wp))
+        return TpEvent("refused", "no waypoint on the map");
+    float p[3];
+    if (!mem::Read(esp_.player_entity + game::kEntityPosOff, p, sizeof p))
+        return TpEvent("refused", "player position unreadable");
+    const Vec3 start{p[0], p[1], p[2]};
+    const float dist = std::hypot(wp.x - start.x, wp.y - start.y);
+    if (dist < 2.0f) return TpEvent("refused", "already there");
+    tp_entity_ = esp_.player_entity;
+    tp_rays_ = 0;
+    tp_held_ = false;
+    tp_settle_ms_ = -1;
+    tp_.Begin(start, wp, now_ms, game::TeleportParams{});
+    tp_phase_ = game::TpPhase::Idle;
+    Line l;
+    JsonLine(l, "tp", tel_->SinceStartMs(), Frame())
+        .Str("event", "start")
+        .Str("source", cursor ? "map cursor" : "waypoint")
+        .Num("from_x", start.x).Num("from_y", start.y).Num("from_z", start.z)
+        .Num("to_x", wp.x).Num("to_y", wp.y).Num("to_z", wp.z)
+        .Num("dist_m", dist)
+        .Num("hold_z", tp_.HoldZ())
+        .Finish();
+    tel_->Push(Channel::Render, l);
+}
+
+// Render thread, after BuildFrame: one step of the teleport in progress (game/teleport.h).
+void Runtime::UpdateTeleport() {
+    const double now = Clock::NowMs();
+    if (tp_settle_ms_ > 0) {  // where the player ended up, 2 s after the release, and how far it strayed meanwhile
+        float p[3];
+        const bool ok = esp_.player_ok && esp_.player_entity == tp_entity_ &&
+                        mem::Read(tp_entity_ + game::kEntityPosOff, p, sizeof p);
+        if (ok) {
+            tp_max_up_ = std::fmax(tp_max_up_, p[2] - tp_place_z_);
+            tp_max_down_ = std::fmax(tp_max_down_, tp_place_z_ - p[2]);
+        }
+        if (now >= tp_settle_ms_) {
+            tp_settle_ms_ = -1;
+            if (ok) {
+                Line l;
+                JsonLine(l, "tp", tel_->SinceStartMs(), Frame())
+                    .Str("event", "settled")
+                    .Num("x", p[0]).Num("y", p[1]).Num("z", p[2])
+                    .Num("above_ground_m", p[2] - tp_ground_z_)
+                    .Num("max_up_m", tp_max_up_)
+                    .Num("max_down_m", tp_max_down_)
+                    .Finish();
+                tel_->Push(Channel::Render, l);
+            }
+        }
+    }
+    const bool request = tp_request_.exchange(false, std::memory_order_relaxed);
+    if (!tp_.Active() && (request || tp_queue_.Pending())) {
+        Vec3 cursor;
+        const bool open = ReadMapCursor(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)), cursor);
+        switch (tp_queue_.Update(request, open, cursor)) {
+            case game::TpAct::Queued: {
+                char msg[96];
+                std::snprintf(msg, sizeof msg, "map cursor kept (%.0f, %.0f): close the map to go", cursor.x, cursor.y);
+                TpEvent("queued", msg);
+                break;
+            }
+            case game::TpAct::Waypoint: StartTeleport(now, nullptr); break;
+            case game::TpAct::Cursor: StartTeleport(now, &tp_queue_.Target()); break;
+            default: break;
+        }
+    }
+    if (!tp_.Active()) return;
+    // Let go only when the player's entity is gone or another one is the player (a loading screen, a death): a frame
+    // or two without the player in the list is normal right after a write.
+    uint64_t vt = 0;
+    const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+    if (!mem::Read(tp_entity_, vt) || vt != base + game::kEntityVtableRva ||
+        (esp_.player_ok && esp_.player_entity != tp_entity_)) {
+        tp_ = game::Teleporter{};
+        tp_phase_ = game::TpPhase::Idle;
+        return TpEvent("lost", "player lost: teleport stopped");
+    }
+    bool ground_ok = false;
+    float ground_z = 0;
+    if (tp_.ProbeDue(now)) {
+        game::GroundQuery q;
+        q.x = tp_.Waypoint().x;
+        q.y = tp_.Waypoint().y;
+        if (tp_held_) {  // the player's own body, held there
+            q.skip_lo = tp_.HoldZ() - 0.5f;
+            q.skip_hi = tp_.HoldZ() + 2.5f;
+        }
+        ground_ok = game::FindGround(q, &CastGround, &tp_rays_, ground_z);
+    }
+    const game::TpStep s = tp_.Update(now, ground_ok, ground_z);
+    if (s.write) {
+        const float p[3] = {s.pos.x, s.pos.y, s.pos.z};
+        mem::Write(tp_entity_ + game::kEntityPosOff, p, sizeof p);
+        if (tp_.Phase() == game::TpPhase::Holding) tp_held_ = true;
+    }
+    if (tp_.Phase() == tp_phase_) return;
+    tp_phase_ = tp_.Phase();
+    char msg[96];
+    switch (tp_phase_) {
+        case game::TpPhase::Holding:
+            TpEvent("holding", "waiting above the destination for the ground to load...");
+            break;
+        case game::TpPhase::Placing: {
+            tp_ground_z_ = ground_z;
+            const double ms = tp_.GroundMs() - tp_.BeginMs();
+            std::snprintf(msg, sizeof msg, "ground at %.1f m, found in %.0f ms (%d rays)", ground_z, ms, tp_rays_);
+            TpEvent("ground", msg);
+            Line l;
+            JsonLine(l, "tp", tel_->SinceStartMs(), Frame())
+                .Str("event", "ground_detail")
+                .Num("ground_z", ground_z)
+                .Num("waypoint_z", tp_.Waypoint().z)
+                .Num("ms", ms)
+                .Int("rays", tp_rays_)
+                .Bool("held", tp_held_)
+                .Finish();
+            tel_->Push(Channel::Render, l);
+            break;
+        }
+        case game::TpPhase::Done:
+            tp_settle_ms_ = now + 2000.0;
+            tp_place_z_ = tp_.Target().z;
+            tp_max_up_ = tp_max_down_ = 0;
+            TpEvent("done", "arrived");
+            break;
+        case game::TpPhase::Returning:
+            TpEvent("timeout", "no ground found in 15 s: back to the start");
+            break;
+        case game::TpPhase::Failed:
+            TpEvent("failed", "back at the start (no ground at the destination)");
+            break;
+        default:
+            break;
+    }
+}
+
+namespace {
+
+bool GameRead(uintptr_t addr, void* dst, size_t size, void*) { return mem::Read(addr, dst, size); }
+bool GameWrite(uintptr_t addr, const void* src, size_t size, void*) { return mem::Write(addr, src, size); }
+
+}  // namespace
+
+void Runtime::UpdateResources() {
+    const double now = Clock::NowMs();
+    if (now - res_read_ms_ < (MenuOpen() ? 500.0 : 2000.0)) return;
+    res_read_ms_ = now;
+    const game::ResourceState& s = res_view_.state =
+        game::ReadResources(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)), &GameRead, nullptr);
+    res_view_.read = true;
+    bool changed = (s.error == nullptr) != (res_logged_.error == nullptr);
+    for (size_t k = 0; k < game::kResourceCount; ++k)
+        changed |= s.entries[k].ok != res_logged_.entries[k].ok || s.entries[k].value != res_logged_.entries[k].value;
+    if (!changed && now - res_log_ms_ < 10000.0) return;
+    res_log_ms_ = now;
+    res_logged_ = s;
+    Line l;
+    JsonLine j(l, "resources", tel_->SinceStartMs(), Frame());
+    for (size_t k = 0; k < game::kResourceCount; ++k)
+        if (s.entries[k].ok) j.Int(game::ResourceName(game::Resource(k)), s.entries[k].value);
+    if (s.error) j.Str("error", s.error);
+    j.Finish();
+    tel_->Push(Channel::Render, l);
+}
+
+void Runtime::SetResource(game::Resource r, int32_t value) {
+    const game::ResourceWrite w = game::WriteResource(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)),
+                                                      &GameRead, &GameWrite, nullptr, r, value);
+    if (w.ok)
+        std::snprintf(res_view_.msg, sizeof res_view_.msg, "%s: %d -> %d", game::ResourceName(r), w.old_value, value);
+    else
+        std::snprintf(res_view_.msg, sizeof res_view_.msg, "%s not set: %s", game::ResourceName(r), w.error);
+    res_view_.msg_bad = !w.ok;
+    Line l;
+    JsonLine j(l, "resource_set", tel_->SinceStartMs(), Frame());
+    j.Str("name", game::ResourceName(r)).Int("old", w.old_value).Int("new", value).Bool("ok", w.ok);
+    if (w.error) j.Str("error", w.error);
+    j.Finish();
+    tel_->Push(Channel::Render, l);
+    res_read_ms_ = -1e18;  // the menu shows it at the next frame
+}
+
+// Render thread. Every frame while it holds: the player's noise radius at 0 (the game sets it again every frame).
+// Every second (at once when toggled): the scan's result logged, the component checked (and looked for while it is
+// unknown), then one step of game/stealth.h.
+void Runtime::UpdateStealth() {
+    const double now = Clock::NowMs();
+    const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+    const bool on = StealthOn();
+    if (on && stealth_.Applied()) {
+        float before = 0;
+        if (game::SilenceNoise(stealth_.Applied(), base, stealth_owner_, &GameRead, &GameWrite, nullptr, &before)) {
+            stealth_noise_max_ = std::fmax(stealth_noise_max_, before);
+            ++stealth_noise_writes_;
+        }
+    }
+    if (!stealth_poke_.exchange(false, std::memory_order_relaxed) && now - stealth_check_ms_ < 1000.0) return;
+    stealth_check_ms_ = now;
+    if (stealth_noise_writes_ && stealth_noise_max_ > 0) {  // the loudest the game made the player this second
+        Line l;
+        JsonLine(l, "stealth", tel_->SinceStartMs(), Frame())
+            .Str("event", "noise")
+            .Num("max_m", stealth_noise_max_)
+            .Int("writes", stealth_noise_writes_)
+            .Finish();
+        tel_->Push(Channel::Render, l);
+    }
+    stealth_noise_max_ = 0;
+    stealth_noise_writes_ = 0;
+    const bool scanning = stealth_scanning_.load(std::memory_order_acquire);
+    if (!scanning && stealth_scan_.joinable()) stealth_scan_.join();
+    if (!scanning && !stealth_scan_logged_) {
+        stealth_scan_logged_ = true;
+        char addr[24];
+        std::snprintf(addr, sizeof addr, "%llx", static_cast<unsigned long long>(stealth_found_.load()));
+        Line l;
+        JsonLine(l, "stealth", tel_->SinceStartMs(), Frame())
+            .Str("event", "scan")
+            .Str("found", addr)
+            .Int("vtable_hits", stealth_scan_hits_.load())
+            .Num("ms", stealth_scan_ms_.load())
+            .Finish();
+        tel_->Push(Channel::Render, l);
+    }
+    // the player's entity; while it is unknown (loading, menus), the one it was applied for
+    const uintptr_t player = esp_.player_ok && esp_.player_entity ? esp_.player_entity : stealth_owner_;
+    uintptr_t v = stealth_found_.load(std::memory_order_acquire);
+    if (!game::IsPlayerVisibility(v, base, player, &GameRead, nullptr)) v = 0;
+    if (on && !v && player && !scanning && now - stealth_scan_at_ms_ >= 5000.0) {
+        stealth_scan_at_ms_ = now;
+        stealth_scan_logged_ = false;
+        stealth_stop_.store(false);
+        stealth_scanning_.store(true, std::memory_order_release);
+        stealth_scan_ = std::thread([this, base, player] { StealthScan(base, player); });
+    }
+    const game::StealthEvent e = stealth_.Update(on, v, &GameRead, &GameWrite, nullptr);
+    if (e == game::StealthEvent::Applied) stealth_owner_ = player;
+    StealthView& view = stealth_view_;
+    view.applied = stealth_.Applied() != 0;
+    view.searching = stealth_scanning_.load(std::memory_order_relaxed);
+    view.msg_bad = false;
+    if (!on) {
+        if (e == game::StealthEvent::Restored) std::snprintf(view.msg, sizeof view.msg, "visible again");
+    } else if (view.applied) {
+        std::snprintf(view.msg, sizeof view.msg, "invisible: no enemy sees you");
+    } else if (view.searching) {
+        std::snprintf(view.msg, sizeof view.msg, "looking for your visibility (a few seconds)");
+    } else if (!player) {
+        std::snprintf(view.msg, sizeof view.msg, "waiting for your character");
+    } else {
+        std::snprintf(view.msg, sizeof view.msg, "%s",
+                      e == game::StealthEvent::Failed ? "could not write your visibility, trying again"
+                                                      : "your visibility was not found, trying again");
+        view.msg_bad = true;
+    }
+    if (e == game::StealthEvent::None) return;
+    char addr[24];
+    const bool ours = e == game::StealthEvent::Applied || e == game::StealthEvent::Rewritten;
+    std::snprintf(addr, sizeof addr, "%llx", static_cast<unsigned long long>(ours ? stealth_.Applied() : v));
+    Line l;
+    JsonLine(l, "stealth", tel_->SinceStartMs(), Frame())
+        .Str("event", game::StealthEventName(e))
+        .Str("comp", addr)
+        .Num("game0", stealth_.GameValue(0))
+        .Num("game1", stealth_.GameValue(1))
+        .Num("game2", stealth_.GameValue(2))
+        .Bool("on", on)
+        .Finish();
+    tel_->Push(Channel::Render, l);
+}
+
+// Its own thread: every writable region for the component's vtable, the player's one kept (the game has one).
+void Runtime::StealthScan(uintptr_t image_base, uintptr_t player) {
+    const double t0 = Clock::NowMs();
+    const uint64_t vt = image_base + game::kVisibilityVtableRva;
+    scan::ScanBuffer buf;
+    const scan::MemRange ex = buf.Range();
+    uint32_t hits = 0;
+    uintptr_t found = 0;
+    for (const scan::Region& r : scan::ReadableRegions(true, &ex, 1)) {
+        for (size_t off = 0; off < r.size && !found; off += scan::ScanBuffer::kBlock) {
+            if (stealth_stop_.load(std::memory_order_relaxed)) break;
+            const size_t len = std::min(r.size - off, scan::ScanBuffer::kBlock);
+            if (!mem::Read(r.base + off, buf.Data(), len)) continue;
+            const auto* q = reinterpret_cast<const uint64_t*>(buf.Data());
+            for (size_t i = 0, n = len / 8; i < n; ++i) {
+                if (q[i] != vt) continue;
+                ++hits;
+                const uintptr_t at = r.base + off + i * 8;
+                if (game::IsPlayerVisibility(at, image_base, player, &GameRead, nullptr)) {
+                    found = at;
+                    break;
+                }
+            }
+        }
+        if (found || stealth_stop_.load(std::memory_order_relaxed)) break;
+    }
+    mem::ClearThreadCache();
+    stealth_found_.store(found, std::memory_order_release);
+    stealth_scan_hits_.store(hits);
+    stealth_scan_ms_.store(float(Clock::NowMs() - t0));
+    stealth_scanning_.store(false, std::memory_order_release);
+}
+
+// Stop, once the render hooks are gone: the scan ended, the game's values back where we set ours.
+void Runtime::StopStealth() {
+    stealth_stop_.store(true);
+    if (stealth_scan_.joinable()) stealth_scan_.join();
+    const uintptr_t at = stealth_.Applied();
+    const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+    if (!at || !game::IsPlayerVisibility(at, base, stealth_owner_, &GameRead, nullptr)) return;
+    const game::StealthEvent e = stealth_.Update(false, at, &GameRead, &GameWrite, nullptr);
+    Line l;
+    JsonLine(l, "stealth", tel_->SinceStartMs(), Frame())
+        .Str("event", game::StealthEventName(e))
+        .Str("why", "unload")
+        .Finish();
+    tel_->Push(Channel::Control, l);
+}
+
 void Runtime::UpdateEsp(float width, float height) {
     const Config c = config_->Snapshot();
-    if (!esp_on_.load(std::memory_order_relaxed) && !c.aim_enabled) {  // the aim needs the same reads
+    const bool tp = tp_.Active() || tp_settle_ms_ > 0 || tp_request_.load(std::memory_order_relaxed) ||
+                    tp_queue_.Pending();
+    // the aim needs the same reads, the teleport and the invisibility the player's entity
+    if (!esp_on_.load(std::memory_order_relaxed) && !c.aim_enabled && !tp && !StealthOn()) {
         esp_.items.clear();
         return;
     }
@@ -490,6 +879,7 @@ void Runtime::UpdateEsp(float width, float height) {
     opt.civilians = c.esp_civilians != 0;
     opt.dead = c.esp_dead != 0;
     world_.BuildFrame(opt, esp_, *stats_);
+    UpdateTeleport();
     if (esp_.camera_ok) {
         const float pos[3] = {esp_.camera_pos.x, esp_.camera_pos.y, esp_.camera_pos.z};
         const float fwd[3] = {esp_.camera.forward.x, esp_.camera.forward.y, esp_.camera.forward.z};
@@ -707,7 +1097,8 @@ void Runtime::PushEspStats() {
         .Num("shot_ms", shots.interval_ms)
         .Int("ammo_flag", ammo_flag_)
         .Int("mod_spread_hits", int64_t(hwbp::ScaleModHits(0)))
-        .Int("mod_recoil_hits", int64_t(hwbp::ScaleModHits(1)));
+        .Int("mod_recoil_hits", int64_t(hwbp::ScaleModHits(1)))
+        .Int("hwbp_stale", int64_t(hwbp::StaleThreads()));
     // the three nearest drawn characters: category, distance, head marker
     const game::EspItem* closest[3] = {};
     for (const game::EspItem& it : esp_.items)
@@ -824,6 +1215,10 @@ void Runtime::Tick() {
     if (c.mod_instant_bullets != cfg_instant_) {
         cfg_instant_ = c.mod_instant_bullets;
         instant_.store(c.mod_instant_bullets != 0, std::memory_order_relaxed);
+    }
+    if (c.invisible != cfg_invisible_) {
+        cfg_invisible_ = c.invisible;
+        SetStealthOn(c.invisible != 0);
     }
     if (c.mod_infinite_ammo != cfg_infinite_ammo_) {
         cfg_infinite_ammo_ = c.mod_infinite_ammo;
@@ -992,13 +1387,15 @@ void Runtime::Tick() {
             if (just_fired && id && std::find(conf.begin(), conf.end(), id) == conf.end()) conf.push_back(id);
         });
     if (Clock::NowMs() - book_saved_ms_ > 5000.0) SaveTrajectories();
-    const int keys[4] = {c.menu_key, c.panel_key, c.unload_key, c.esp_key};
-    for (int i = 0; i < 4; ++i) {
+    const int keys[6] = {c.menu_key, c.panel_key, c.unload_key, c.esp_key, c.tp_key, c.invisible_key};
+    for (int i = 0; i < 6; ++i) {
         const bool down = (GetAsyncKeyState(keys[i]) & 0x8000) != 0;
         if (down && !key_down_[i]) {
             if (i == 0) menu_open_ = !menu_open_;
             else if (i == 1) hud_level_ = (hud_level_ + 1) % 3;  // minimal -> details -> hidden
             else if (i == 3) esp_on_ = !esp_on_;
+            else if (i == 4) RequestTeleport();
+            else if (i == 5) SetStealthOn(!StealthOn());
             else InterlockedExchange(&control_->unload_request, 1);
         }
         key_down_[i] = down;

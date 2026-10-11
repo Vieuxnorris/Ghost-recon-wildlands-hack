@@ -31,6 +31,13 @@ weapon and bullet mods. Each feature started as a research question about how th
 - "Magic" bullets: one per enemy, picked automatically, through walls and vehicle hulls.
 - Infinite ammo through the game's own rule flag, and 1 to 32 bullets per shot.
 
+**Player** (Player and Resources tabs)
+- Teleport (F5) to the map waypoint, or under the tactical map's cursor; the ground is found with the game's
+  own ray casts while the terrain streams in.
+- Invisibility (F7): enemies can't see the player and don't hear footsteps. Gunshots are still heard, as if
+  through a suppressor: enemies get suspicious but can't spot the shooter.
+- Rebel resources and skill points, read and set.
+
 ## How it works
 
 - **No code patching for the gameplay hooks.** The CPU debug registers act as hooks: execution breakpoints and

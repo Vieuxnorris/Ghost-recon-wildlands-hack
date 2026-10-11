@@ -400,6 +400,8 @@ void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) 
     out.offscreen.clear();
     out.camera_ok = false;
     out.player_ok = false;
+    out.player_entity = 0;
+    out.player_flags = 0;
     out.player_head_ok = false;
     out.active = out.on_screen = out.heads = 0;
 
@@ -450,7 +452,8 @@ void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) 
         const Vec3 feet = m.Position();
         if (!(feet.Length() >= 1.0f)) continue;  // inactive pool
         const float dist = (feet - cam.pos).Length();
-        if (dist > opt.max_dist || !m.Plausible()) continue;
+        // the player is never out of range: right after a teleport the camera is there and this matrix not yet
+        if ((dist > opt.max_dist && owner != r_player_entity_) || !m.Plausible()) continue;
 
         uint32_t flags = 0;
         const mem::Piece op[] = {{0, &v, 8}, {kEntityFlagsOff, &flags, 4}};
@@ -461,6 +464,8 @@ void World::BuildFrame(const EspOptions& opt, EspFrame& out, StageStats& stats) 
             ReadAim(owner, out.aim);
             out.player_ok = true;
             out.player_feet = feet;
+            out.player_entity = r_player_entity_ = owner;
+            out.player_flags = flags;
             // the player's head: where the bullets start in third person (camera-findings.md section 9)
             uintptr_t bones_ptr;
             Vec3 head_m, crown_m;

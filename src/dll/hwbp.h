@@ -125,6 +125,9 @@ void SetTrigger(int slot, int window_ms);
 // it is armed: its cost) and steps of the player's projectiles kept.
 uint64_t TrackerCalls();
 uint64_t TrackerSamples();
+// Since injection: threads whose breakpoint fired with registers of an earlier configuration (Configure while they were
+// inside the handler), set again by the handler, their hit dropped.
+uint64_t StaleThreads();
 // Render thread: the camera position and forward axis, and the player's head (ok = false: unknown), to keep the
 // player's own projectiles: fired within 1 m of the head (third person: they start there), or within 8 m of
 // the camera less than 5 degrees from where it looks.

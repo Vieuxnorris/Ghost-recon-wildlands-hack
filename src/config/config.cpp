@@ -107,6 +107,10 @@ bool Assign(Config& c, std::string_view key, std::string_view v) {
     if (key == "esp_max_distance_m") return ParseFloat(v, c.esp_max_distance_m);
     if (key == "esp_enabled") return ParseInt(v, c.esp_enabled);
     if (key == "esp_key") return ParseInt(v, c.esp_key);
+    if (key == "tp_key") return ParseInt(v, c.tp_key) && c.tp_key > 0 && c.tp_key <= 0xFF;
+    if (key == "invisible") return ParseInt(v, c.invisible) && (c.invisible == 0 || c.invisible == 1);
+    if (key == "invisible_key")
+        return ParseInt(v, c.invisible_key) && c.invisible_key > 0 && c.invisible_key <= 0xFF;
     if (key == "esp_civilians") return ParseInt(v, c.esp_civilians);
     if (key == "esp_dead") return ParseInt(v, c.esp_dead);
     if (key == "esp_list_interval_ms")
@@ -165,6 +169,11 @@ std::string ConfigText(const Config& d) {
       << "esp_max_distance_m = " << d.esp_max_distance_m << "\n"
       << "esp_enabled = " << d.esp_enabled << "\n"
       << "esp_key = 0x" << std::hex << d.esp_key << std::dec << "\n"
+      << "# teleport to the map waypoint (on foot)\n"
+      << "tp_key = 0x" << std::hex << d.tp_key << std::dec << "\n"
+      << "# invisibility: no enemy sees the player (1 = on at injection), and its key\n"
+      << "invisible = " << d.invisible << "\n"
+      << "invisible_key = 0x" << std::hex << d.invisible_key << std::dec << "\n"
       << "esp_civilians = " << d.esp_civilians << "\n"
       << "esp_dead = " << d.esp_dead << "\n"
       << "# how often the game's entity list is read (ms, 20-5000): a new character appears within this\n"

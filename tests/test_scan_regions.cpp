@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstring>
 #include <windows.h>
+#include "core/mem.h"
 #include "scan/regions.h"
 
 using namespace grw::scan;
@@ -32,6 +33,7 @@ size_t Count(const CandidateSet& s, uintptr_t addr) {
 }  // namespace
 
 TEST_CASE("Subtract removes excluded ranges, splitting regions") {
+    grw::mem::ClearThreadCache();  // a region cached by an earlier test may sit where VirtualAlloc gives memory now
     const std::vector<Region> in = {{0x10000, 0x40000}};
     const MemRange ex[] = {{0x20000, 0x1000}, {0x48000, 0x10000}};
     const std::vector<Region> out = Subtract(in, ex, 2);
@@ -45,6 +47,7 @@ TEST_CASE("Subtract removes excluded ranges, splitting regions") {
 }
 
 TEST_CASE("ReadableRegions lists committed readable memory, not no-access pages nor excluded ranges") {
+    grw::mem::ClearThreadCache();  // a region cached by an earlier test may sit where VirtualAlloc gives memory now
     auto* rw = static_cast<uint8_t*>(VirtualAlloc(nullptr, 0x10000, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     auto* na = static_cast<uint8_t*>(VirtualAlloc(nullptr, 0x10000, MEM_RESERVE | MEM_COMMIT, PAGE_NOACCESS));
     auto* ex = static_cast<uint8_t*>(VirtualAlloc(nullptr, 0x10000, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -64,6 +67,7 @@ TEST_CASE("ReadableRegions lists committed readable memory, not no-access pages 
 }
 
 TEST_CASE("ScanMatrices finds planted rigid matrices once, including across a block boundary") {
+    grw::mem::ClearThreadCache();  // a region cached by an earlier test may sit where VirtualAlloc gives memory now
     const size_t size = 3 * ScanBuffer::kBlock;
     auto* p = static_cast<uint8_t*>(VirtualAlloc(nullptr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     PlantRigid(p + 0x100, 0.5f, 100, 200, 30);
@@ -81,6 +85,7 @@ TEST_CASE("ScanMatrices finds planted rigid matrices once, including across a bl
 }
 
 TEST_CASE("ScanMatrices Perspective finds a projection and not the rigid ones") {
+    grw::mem::ClearThreadCache();  // a region cached by an earlier test may sit where VirtualAlloc gives memory now
     auto* p = static_cast<uint8_t*>(VirtualAlloc(nullptr, 0x10000, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     PlantRigid(p + 0x40, 0.5f, 1, 2, 3);
     PlantPersp(p + 0x800);
@@ -93,6 +98,7 @@ TEST_CASE("ScanMatrices Perspective finds a projection and not the rigid ones") 
 }
 
 TEST_CASE("ScanFloats keeps floats matching the predicate") {
+    grw::mem::ClearThreadCache();  // a region cached by an earlier test may sit where VirtualAlloc gives memory now
     auto* p = static_cast<uint8_t*>(VirtualAlloc(nullptr, 0x10000, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     const float yaw = 1.2345f;
     std::memcpy(p + 0x204, &yaw, 4);
@@ -107,6 +113,7 @@ TEST_CASE("ScanFloats keeps floats matching the predicate") {
 }
 
 TEST_CASE("A region freed before the scan is counted unreadable, without crashing") {
+    grw::mem::ClearThreadCache();  // a region cached by an earlier test may sit where VirtualAlloc gives memory now
     auto* p = static_cast<uint8_t*>(VirtualAlloc(nullptr, 0x10000, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     const Region r{U(p), 0x10000};
     uint32_t tmp = 0;
@@ -120,6 +127,7 @@ TEST_CASE("A region freed before the scan is counted unreadable, without crashin
 }
 
 TEST_CASE("A set cancel flag stops the scan") {
+    grw::mem::ClearThreadCache();  // a region cached by an earlier test may sit where VirtualAlloc gives memory now
     auto* p = static_cast<uint8_t*>(VirtualAlloc(nullptr, 0x10000, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     std::atomic<bool> cancel{true};
     ScanBuffer buf;

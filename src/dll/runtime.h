@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 #include "common/shared_control.h"
@@ -13,6 +14,9 @@
 #include "dll/aimbot.h"
 #include "dll/bullet_probe.h"
 #include "dll/los.h"
+#include "game/resources.h"
+#include "game/stealth.h"
+#include "game/teleport.h"
 #include "game/world.h"
 #include "telemetry/telemetry.h"
 
@@ -82,8 +86,82 @@ public:
     uint64_t SpreadModHits() const;
     uint64_t RecoilModHits() const;
     float TrackerCallsPerS() const { return tracker_calls_per_s_.load(std::memory_order_relaxed); }
+    // Teleport (tp_key / the menu): under the map's cursor when the map is open (once it closes), else to the map
+    // waypoint. Requested from any thread, run on the render thread.
+    void RequestTeleport() { tp_request_.store(true, std::memory_order_relaxed); }
+    struct TpView {
+        game::TpPhase phase = game::TpPhase::Idle;
+        char msg[96] = {};
+        double at_ms = -1e18;  // when msg was set
+    };
+    const TpView& TeleportView() const { return tp_view_; }  // render thread only
+    // The rebels' resources and the skill points (game/resources.h), render thread: read every 0.5 s with the menu
+    // open, else every 2 s (the "resources" telemetry line, on a change and every 10 s); set from the menu.
+    struct ResView {
+        game::ResourceState state;
+        bool read = false;  // read at least once
+        char msg[112] = {};  // the last set
+        bool msg_bad = false;
+    };
+    void UpdateResources();
+    const ResView& ResourcesView() const { return res_view_; }
+    void SetResource(game::Resource r, int32_t value);
+    // Invisibility (invisible_key / the menu; game/stealth.h), render thread: checked every second, applied to the
+    // player's visibility component, found by a scan for its vtable on a thread of its own (~3 s, then only checked).
+    bool StealthOn() const { return stealth_on_.load(std::memory_order_relaxed); }
+    void SetStealthOn(bool on) {
+        stealth_on_.store(on, std::memory_order_relaxed);
+        stealth_poke_.store(true, std::memory_order_relaxed);
+    }
+    struct StealthView {
+        bool applied = false;    // our zeros are in the game
+        bool searching = false;  // the scan is running
+        char msg[96] = {};
+        bool msg_bad = false;
+    };
+    void UpdateStealth();
+    const StealthView& StealthStatus() const { return stealth_view_; }  // render thread only
 
 private:
+    std::atomic<bool> stealth_on_{false};
+    std::atomic<bool> stealth_poke_{false};  // check at the next frame (toggled)
+    int cfg_invisible_ = -1;
+    game::Stealth stealth_;
+    uintptr_t stealth_owner_ = 0;  // the player's entity when it was applied
+    float stealth_noise_max_ = 0;  // this second: the largest noise radius the game had set before our 0
+    int64_t stealth_noise_writes_ = 0;
+    double stealth_check_ms_ = -1e18;
+    double stealth_scan_at_ms_ = -1e18;  // the last scan's start
+    StealthView stealth_view_;
+    // the scan's thread and its results (read once it is done)
+    std::thread stealth_scan_;
+    std::atomic<bool> stealth_scanning_{false};
+    std::atomic<bool> stealth_stop_{false};
+    std::atomic<uintptr_t> stealth_found_{0};
+    std::atomic<uint32_t> stealth_scan_hits_{0};  // qwords equal to the vtable
+    std::atomic<float> stealth_scan_ms_{0};
+    bool stealth_scan_logged_ = true;
+    void StealthScan(uintptr_t image_base, uintptr_t player);  // its thread
+    void StopStealth();  // Stop: the game's values back
+    ResView res_view_;
+    double res_read_ms_ = -1e18;
+    double res_log_ms_ = -1e18;
+    game::ResourceState res_logged_;  // the amounts in the last telemetry line
+    void UpdateTeleport();  // render thread, after BuildFrame
+    void StartTeleport(double now_ms, const Vec3* cursor);  // cursor null: to the waypoint
+    void TpEvent(const char* event, const char* msg);  // the menu's line and a "tp" telemetry line
+    std::atomic<bool> tp_request_{false};
+    game::TpQueue tp_queue_;  // a map cursor kept until the map closes
+    game::Teleporter tp_;
+    game::TpPhase tp_phase_ = game::TpPhase::Idle;  // last phase reported
+    uintptr_t tp_entity_ = 0;  // the player's entity being moved
+    int tp_rays_ = 0;
+    bool tp_held_ = false;      // the player was written at the hold position (its body is then under the rays)
+    float tp_ground_z_ = 0;     // the ground found
+    double tp_settle_ms_ = -1;  // when to log where the player ended up (-1 = nothing pending)
+    float tp_place_z_ = 0;      // the height written at the end; until the log, the largest rise and fall from it
+    float tp_max_up_ = 0, tp_max_down_ = 0;
+    TpView tp_view_;
     void Tick();
     bool LearningWanted() const;
     void PushTrackerStats(bool armed);
@@ -105,7 +183,7 @@ private:
     std::atomic<int> hud_level_{1};
     std::atomic<uint64_t> frame_{0};
     std::atomic<int> overlay_mode_{2};  // copied from the config on the writer thread
-    bool key_down_[4] = {};
+    bool key_down_[6] = {};
     game::World world_;
     game::EspFrame esp_;
     Aimbot aim_;

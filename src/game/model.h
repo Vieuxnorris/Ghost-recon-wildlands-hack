@@ -26,6 +26,62 @@ inline constexpr size_t kEntityFlagsOff = 0xD0;  // u32: category bits, see Clas
 // [O + 0x78] = the entity's components: the character object A is one of the qwords at +0xB0..+0x128.
 inline constexpr size_t kEntityComponentsOff = 0x78;
 inline constexpr size_t kComponentsSearch = 0x200;
+// The entity's world matrix: 4x4 f32 at +0x20, same layout as the camera. Writing the player's position (+0x50)
+// moves the player: the camera follows within 5 ms, the character object's matrix within 20 ms (MODLOG 2026-10-10).
+inline constexpr size_t kEntityMatrixOff = 0x20;
+inline constexpr size_t kEntityPosOff = 0x50;
+
+// The map waypoint (MODLOG 2026-10-10, TP perso): [GRW + 0x4B98FC8] = a system (vtable 0x390A8A8), its object at
+// +0x30 (vtable 0x390F680) holds at +0x18 a weak handle to the waypoint's entity (vtable kEntityVtableRva, identity
+// rotation), whose position is the waypoint. Its z is the terrain's only where the terrain was known when it was
+// placed (805 m away: yes; 1.6 km: the player's own z). The same entity is moved; removing the waypoint changes
+// nothing here.
+inline constexpr uintptr_t kWaypointRootRva = 0x4B98FC8;
+inline constexpr uintptr_t kWaypointRootVtableRva = 0x390A8A8;
+inline constexpr size_t kWaypointHolderOff = 0x30;
+inline constexpr uintptr_t kWaypointHolderVtableRva = 0x390F680;
+inline constexpr size_t kWaypointHandleOff = 0x18;
+// The tactical map's cursor (MODLOG 2026-10-10, F5 on the map): the same system's +0x90 holds a HUD marker (vtable
+// 0x39142B8) whose +0x60 is the cursor's world position while the map is open, (0, 0, 0) once it is closed. Its z is
+// the icon's when the cursor sits on one, else 0. The game is paused while the map is open.
+inline constexpr size_t kMapCursorOff = 0x90;
+inline constexpr uintptr_t kHudMarkerVtableRva = 0x39142B8;
+inline constexpr size_t kHudMarkerPosOff = 0x60;
+
+// The rebels' resources (MODLOG 2026-10-10, ressources): [GRW + 0x4B98E80] = their owner (vtable 0x390CE98), its
+// store at +0x18 (vtable 0x3922040), whose amounts are a tagged pointer at +0x10. Tag 1: r = pointer & ~7, [r] = the
+// last index, key i at r + 8 + 8i (vtable 0x39144C0, u32 id at +8), the protected amount i at r + 8 * (first + i),
+// first = the byte at GRW + 0x3AA1D09 + [r] (the game's accessor 0x8133F0). The game rebuilds a plain copy of them
+// every 5-50 s (vtable 0x3922058), which nothing reads back.
+inline constexpr uintptr_t kResourceOwnerRva = 0x4B98E80;
+inline constexpr uintptr_t kResourceOwnerVtableRva = 0x390CE98;
+inline constexpr size_t kResourceStoreOff = 0x18;
+inline constexpr uintptr_t kResourceStoreVtableRva = 0x3922040;
+inline constexpr size_t kResourceListOff = 0x10;
+inline constexpr uintptr_t kResourceKeyVtableRva = 0x39144C0;
+inline constexpr size_t kResourceKeyIdOff = 0x8;
+inline constexpr uintptr_t kResourceFirstSlotRva = 0x3AA1D09;
+inline constexpr uint32_t kFuelId = 0x40005816, kMedicineId = 0x40005817, kCommsId = 0x40005819, kFoodId = 0x40005814;
+// The game's protected int (the magazine's kind too): {u8* bytes[4]; u32 key at +0x20}, decoded by 0x147E35A40 and
+// encoded by 0x1475FF4B0, which only rewrites those 4 bytes.
+inline constexpr size_t kProtectedKeyOff = 0x20;
+// The skill points: a plain i32. [GRW + 0x4B98FA0] (vtable 0x390F588) keeps point counters at +0x10 + 4 * kind; the
+// game adds to them through 0x1406CBE50(this, kind, n). Kind 3 = the skill points.
+inline constexpr uintptr_t kSkillPointsRootRva = 0x4B98FA0;
+inline constexpr uintptr_t kSkillPointsVtableRva = 0x390F588;
+inline constexpr size_t kSkillPointsOff = 0x1C;
+
+// The player's visibility component (MODLOG 2026-10-10, invisibilite): the one object of vtable 0x3B88770, owned by
+// the player's entity O (+0x28). The AI's sight asks it for the player's visibility (0x140AE4350, ~150 calls/s from
+// the AI's job threads); three multipliers at +0x3C (1.0 each) scale it: all at 0, no enemy ever sees the player.
+// +0x30 is the player's noise radius in metres (0 prone and still ... 40 sprinting), rewritten by the game.
+inline constexpr uintptr_t kVisibilityVtableRva = 0x3B88770;
+inline constexpr size_t kVisibilityOwnerOff = 0x28;
+inline constexpr size_t kVisibilityMultOff = 0x3C;
+inline constexpr size_t kVisibilityMultCount = 3;
+inline constexpr float kVisibilityMultDefault = 1.0f;  // the game's value (all three, in every state seen)
+inline constexpr size_t kVisibilityNoiseOff = 0x30;
+inline constexpr size_t kVisibilityNoiseCopyOff = 0x148;
 
 // The world's list of live entities (camera-findings.md section 8): world = [base + 0x4B90298],
 // list = [world + 0xE0], slots of 0x18 bytes {entity O, component, flags} at [list + 0xE0], u16 slot count at

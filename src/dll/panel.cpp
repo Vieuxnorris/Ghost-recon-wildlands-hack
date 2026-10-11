@@ -5,6 +5,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <iterator>
 #include "dll/esp.h"
 #include "dll/hwbp.h"
@@ -278,6 +279,10 @@ void StatusLine(Runtime& rt, bool aim_on) {
     Gap();
     Dot(rt.EspOn() ? kAccent : kDim);
     ImGui::TextColored(rt.EspOn() ? kText : kDim, "ESP");
+    if (rt.StealthOn()) {
+        Gap();
+        ImGui::TextColored(rt.StealthStatus().applied ? kAccent : kWarn, "INVIS");
+    }
     if (rt.MagicBullets()) {
         Gap();
         ImGui::TextColored(kWarn, "magic");
@@ -438,6 +443,82 @@ bool TabVisuals(Runtime& rt, Config& c) {
     return changed;
 }
 
+// Player: the teleport (dll/runtime.cpp, UpdateTeleport): the button, its key and the last result. The map open:
+// under its cursor once it closes; closed: to the map waypoint. Then the invisibility (UpdateStealth).
+bool TabPlayer(Runtime& rt, Config& c) {
+    bool changed = false;
+    const Runtime::TpView& v = rt.TeleportView();
+    const bool busy = v.phase == game::TpPhase::Holding || v.phase == game::TpPhase::Placing ||
+                      v.phase == game::TpPhase::Returning;
+    ImGui::BeginDisabled(busy);
+    if (ImGui::Button("teleport to the map waypoint", ImVec2(-FLT_MIN, 0))) rt.RequestTeleport();
+    ImGui::TextColored(kDim, "the key with the map open: under its cursor, once the map closes");
+    ImGui::EndDisabled();
+    changed |= KeyRow("teleport key", &c.tp_key, 5, c.menu_key);
+    ImGui::Separator();
+    if (v.msg[0]) {
+        const bool bad = v.phase == game::TpPhase::Failed || std::strncmp(v.msg, "no ", 3) == 0 ||
+                         std::strstr(v.msg, "vehicle") || std::strstr(v.msg, "lost") || std::strstr(v.msg, "not found");
+        ImGui::TextColored(bad ? kWarn : busy ? kDim : kAccent, "%s", v.msg);
+    } else {
+        ImGui::TextColored(kDim, "on foot; far away, you wait above the waypoint until its ground loads");
+    }
+    ImGui::Separator();
+    bool invisible = rt.StealthOn();
+    if (ImGui::Checkbox("invisible", &invisible)) rt.SetStealthOn(invisible);
+    ImGui::SameLine(0, ImGui::GetFontSize());
+    ImGui::TextColored(kDim, "no enemy sees you; your noise at 0");
+    changed |= KeyRow("invisible key", &c.invisible_key, 6, c.menu_key);
+    const Runtime::StealthView& sv = rt.StealthStatus();
+    if (sv.msg[0]) ImGui::TextColored(sv.msg_bad ? kWarn : sv.applied ? kAccent : kDim, "%s", sv.msg);
+    return changed;
+}
+
+// Resources (dll/runtime.cpp, SetResource): the game's amounts, in the order of its skills menu, and a field to set
+// each. The game spends them as usual afterwards.
+void TabResources(Runtime& rt) {
+    static const char* const kLabels[game::kResourceCount] = {"skill points", "fuel", "medicine", "comms", "food"};
+    static int edit[game::kResourceCount] = {};
+    static bool edited[game::kResourceCount] = {};  // the field holds a value of the user's (else the game's)
+    const float k = g_scale;
+    const Runtime::ResView& v = rt.ResourcesView();
+    if (!v.read) {
+        ImGui::TextColored(kDim, "reading the game...");
+        return;
+    }
+    for (size_t i = 0; i < game::kResourceCount; ++i) {
+        const game::ResourceEntry& e = v.state.entries[i];
+        const game::Resource r = game::Resource(i);
+        ImGui::PushID(int(i));
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(kLabels[i]);
+        ImGui::SameLine(g_label_w);
+        if (e.ok)
+            ImGui::Text("%d", e.value);
+        else
+            ImGui::TextColored(kWarn, "?");
+        if (!edited[i] && e.ok) edit[i] = e.value;
+        ImGui::SameLine(g_label_w + 80 * k);
+        ImGui::SetNextItemWidth(110 * k);
+        if (ImGui::InputInt("##v", &edit[i], 0, 0)) edited[i] = true;
+        edit[i] = std::clamp(edit[i], 0, int(game::ResourceMax(r)));
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!e.ok);
+        if (ImGui::Button("set")) {
+            rt.SetResource(r, edit[i]);
+            edited[i] = false;
+        }
+        ImGui::EndDisabled();
+        ImGui::PopID();
+    }
+    ImGui::Separator();
+    if (v.state.error) ImGui::TextColored(kWarn, "%s", v.state.error);
+    if (v.msg[0])
+        ImGui::TextColored(v.msg_bad ? kWarn : kAccent, "%s", v.msg);
+    else
+        ImGui::TextColored(kDim, "the skills menu shows the new amounts once reopened");
+}
+
 bool TabDebug(Runtime& rt, Config& c) {
     bool changed = false;
     ImGui::AlignTextToFramePadding();
@@ -568,6 +649,14 @@ void DrawMenu(Runtime& rt, const Config& current) {
             changed |= TabBullets(rt, c);
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Player")) {
+            changed |= TabPlayer(rt, c);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Resources")) {
+            TabResources(rt);
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("Debug")) {
             changed |= TabDebug(rt, c);
             ImGui::EndTabItem();
@@ -615,6 +704,8 @@ void DrawPanel() {
     const float k = std::clamp(ImGui::GetIO().DisplaySize.y / 1080.0f, 1.0f, 2.0f);
     if (std::fabs(k - g_scale) > 0.01f) ApplyStyle(k);
     DrawEsp(kHudSize * k);
+    rt.UpdateResources();
+    rt.UpdateStealth();
     const bool menu = rt.MenuOpen();
     const int hud = rt.HudLevel();
     if (hud == 0 && !menu) return;

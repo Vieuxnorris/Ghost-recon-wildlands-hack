@@ -1,4 +1,5 @@
 #include "dll/hwbp.h"
+#include "core/debug_regs.h"
 #include "game/model.h"
 #include <windows.h>
 #include <tlhelp32.h>
@@ -49,7 +50,49 @@ uintptr_t g_self_lo = 0, g_self_hi = 0;  // this DLL: its own reads (ESP scans) 
 uintptr_t g_addrs[4] = {};
 int g_len = 0;
 Mode g_modes[4] = {};
-std::atomic<uint32_t> g_exec_mask{0};  // slots that are instruction breakpoints
+// The configuration the handler gives a thread found with another one (MODLOG 2026-10-10): a thread inside the handler
+// while ApplyAll set it gets the old registers back from its exception context when it resumes. A seqlock, written
+// by Configure: DR0-DR3, the types (exec bits 0-3, read bits 4-7), the length.
+std::atomic<uint32_t> g_want_seq{0};
+std::atomic<uint64_t> g_want[6] = {};
+std::atomic<uint64_t> g_stale{0};  // threads set again by the handler since injection
+
+dr::Slots ToSlots(const uintptr_t (&addrs)[4], const Mode (&modes)[4], int len) {
+    dr::Slots s;
+    for (int i = 0; i < 4; ++i) {
+        s.addr[i] = addrs[i];
+        s.exec[i] = modes[i] == Mode::Execute;
+        s.read[i] = modes[i] == Mode::ReadWrite;
+    }
+    s.len = len;
+    return s;
+}
+
+void SetWant(const dr::Slots& s) {  // writer thread
+    g_want_seq.fetch_add(1, std::memory_order_acq_rel);  // odd: being written
+    uint64_t types = 0;
+    for (int i = 0; i < 4; ++i) {
+        g_want[i].store(s.addr[i], std::memory_order_relaxed);
+        types |= uint64_t(s.exec[i]) << i | uint64_t(s.read[i]) << (4 + i);
+    }
+    g_want[4].store(types, std::memory_order_relaxed);
+    g_want[5].store(uint64_t(s.len), std::memory_order_relaxed);
+    g_want_seq.fetch_add(1, std::memory_order_release);
+}
+
+bool ReadWant(dr::Slots& s) {  // any thread; false while it is being written
+    const uint32_t q = g_want_seq.load(std::memory_order_acquire);
+    if (q & 1) return false;
+    for (int i = 0; i < 4; ++i) s.addr[i] = g_want[i].load(std::memory_order_relaxed);
+    const uint64_t types = g_want[4].load(std::memory_order_relaxed);
+    s.len = int(g_want[5].load(std::memory_order_relaxed));
+    for (int i = 0; i < 4; ++i) {
+        s.exec[i] = (types >> i) & 1;
+        s.read[i] = (types >> (4 + i)) & 1;
+    }
+    std::atomic_thread_fence(std::memory_order_acquire);
+    return g_want_seq.load(std::memory_order_relaxed) == q;
+}
 
 // SEH-guarded copy (no C++ objects here): the pointer in a register may be anything.
 bool SafeCopy(void* dst, uint64_t src, size_t n) {
@@ -478,8 +521,25 @@ LONG HandlerImpl(EXCEPTION_POINTERS* ep) {
     const uint64_t fired = c->Dr6 & 0xF;
     if (!fired) return EXCEPTION_CONTINUE_SEARCH;  // not one of our DR0-DR3
     c->Dr6 = 0;
-    // An instruction breakpoint fires before the instruction: resume with RF so it is not hit again at once.
-    if (fired & g_exec_mask.load()) c->EFlags |= 0x10000;
+    // An instruction breakpoint fires before the instruction: resume with RF so it is not hit again at once. Its type
+    // comes from this thread's own DR7, not from the configuration: a breakpoint left from an earlier one (the recoil
+    // mod's, in a slot that watches data now) got no RF and fired again in a loop (MODLOG 2026-10-10).
+    for (int i = 0; i < 4; ++i)
+        if (((fired >> i) & 1) && dr::IsExec(c->Dr7, i)) c->EFlags |= 0x10000;
+    // A thread that kept another configuration: the current one, and the hit is dropped.
+    dr::Slots want;
+    uint64_t regs[4] = {c->Dr0, c->Dr1, c->Dr2, c->Dr3};
+    if (ReadWant(want) && dr::Stale(regs, c->Dr7, want)) {
+        uint64_t dr7 = c->Dr7;
+        dr::Apply(regs, dr7, want);
+        c->Dr0 = regs[0];
+        c->Dr1 = regs[1];
+        c->Dr2 = regs[2];
+        c->Dr3 = regs[3];
+        c->Dr7 = dr7;
+        g_stale.fetch_add(1, std::memory_order_relaxed);
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
     if (c->Rip >= g_self_lo && c->Rip < g_self_hi) return EXCEPTION_CONTINUE_EXECUTION;
     if (const int ps = g_pellets.slot.load(std::memory_order_acquire); ps >= 0 && (fired & (uint64_t(1) << ps))) {
         PelletJump(c);
@@ -566,11 +626,7 @@ void ApplyAll(const uintptr_t (&addrs)[4], int len, const Mode (&modes)[4]) {
         if (te.th32OwnerProcessID == pid && te.th32ThreadID != self) tids.push_back(te.th32ThreadID);
     CloseHandle(snap);
 
-    uint64_t len_bits[4], rw_bits[4];
-    for (int i = 0; i < 4; ++i) {
-        len_bits[i] = modes[i] == Mode::Execute ? 0 : len == 1 ? 0 : len == 2 ? 1 : len == 8 ? 2 : 3;
-        rw_bits[i] = modes[i] == Mode::Execute ? 0 : modes[i] == Mode::ReadWrite ? 3 : 1;
-    }
+    const dr::Slots s = ToSlots(addrs, modes, len);
     for (DWORD tid : tids) {
         HANDLE t = OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_SUSPEND_RESUME, FALSE, tid);
         if (!t) continue;
@@ -578,13 +634,12 @@ void ApplyAll(const uintptr_t (&addrs)[4], int len, const Mode (&modes)[4]) {
             CONTEXT ctx{};
             ctx.ContextFlags = CONTEXT_DEBUG_REGISTERS;
             if (GetThreadContext(t, &ctx)) {
-                uint64_t dr7 = ctx.Dr7 & ~uint64_t(0xFFFF00FF);  // our L0-L3/G0-G3 and RW/LEN fields
-                DWORD64* regs[4] = {&ctx.Dr0, &ctx.Dr1, &ctx.Dr2, &ctx.Dr3};
-                for (int i = 0; i < 4; ++i) {
-                    *regs[i] = addrs[i];
-                    if (addrs[i])
-                        dr7 |= (1ull << (2 * i)) | (rw_bits[i] << (16 + 4 * i)) | (len_bits[i] << (18 + 4 * i));
-                }
+                uint64_t regs[4], dr7 = ctx.Dr7;
+                dr::Apply(regs, dr7, s);
+                ctx.Dr0 = regs[0];
+                ctx.Dr1 = regs[1];
+                ctx.Dr2 = regs[2];
+                ctx.Dr3 = regs[3];
                 ctx.Dr7 = dr7;
                 ctx.Dr6 = 0;
                 SetThreadContext(t, &ctx);
@@ -617,21 +672,20 @@ void Configure(const uintptr_t (&addrs)[4], const Mode (&modes)[4], int len, int
         g_self_lo = reinterpret_cast<uintptr_t>(sb);
         g_self_hi = g_self_lo + snt->OptionalHeader.SizeOfImage;
     }
-    for (int i = 0; i < 4; ++i) g_addrs[i] = addrs[i];
-    g_len = len;
-    uint32_t exec = 0;
     for (int i = 0; i < 4; ++i) {
+        g_addrs[i] = addrs[i];
         g_modes[i] = modes[i];
-        if (modes[i] == Mode::Execute) exec |= 1u << i;
     }
-    g_exec_mask = exec;
+    g_len = len;
     if (any) {
         g_hits = 0;
         g_max_hits = max_hits;
+        SetWant(ToSlots(addrs, modes, len));
         if (!g_veh) g_veh = AddVectoredExceptionHandler(1, &Handler);
         ApplyAll(addrs, len, modes);
         g_armed = true;
     } else {
+        SetWant(dr::Slots{});
         ApplyAll(kNone, 0, kWrites);
         g_armed = false;
     }
@@ -699,6 +753,7 @@ void SetTrigger(int slot, int window_ms) {
 }
 uint64_t TrackerCalls() { return g_tracker_calls.load(std::memory_order_relaxed); }
 uint64_t TrackerSamples() { return g_proj_written.load(std::memory_order_relaxed); }
+uint64_t StaleThreads() { return g_stale.load(std::memory_order_relaxed); }
 
 void SetCamera(const float (&pos)[3], const float (&forward)[3]) {
     for (int i = 0; i < 3; ++i) {

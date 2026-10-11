@@ -16,6 +16,34 @@ TEST_CASE("ParseConfig reads keys, floats, hex and comments") {
     CHECK(c.aim_cone_deg == Config{}.aim_cone_deg);  // absent key keeps its value
 }
 
+TEST_CASE("ParseConfig reads the teleport key (F5 by default) and ConfigText writes it back") {
+    Config c;
+    CHECK(c.tp_key == 0x74);  // VK_F5
+    REQUIRE(ParseConfig("tp_key = 0x76\n", c).ok);
+    CHECK(c.tp_key == 0x76);
+    Config back;
+    REQUIRE(ParseConfig(ConfigText(c), back).ok);
+    CHECK(back.tp_key == 0x76);
+    CHECK_FALSE(ParseConfig("tp_key = 0\n", c).ok);
+    CHECK_FALSE(ParseConfig("tp_key = 0x100\n", c).ok);
+}
+
+TEST_CASE("ParseConfig reads the invisibility switch and its key") {
+    Config c;
+    CHECK(c.invisible == 0);
+    CHECK(c.invisible_key == 0x76);  // VK_F7
+    REQUIRE(ParseConfig("invisible = 1\ninvisible_key = 0x77\n", c).ok);
+    CHECK(c.invisible == 1);
+    CHECK(c.invisible_key == 0x77);
+    Config back;
+    REQUIRE(ParseConfig(ConfigText(c), back).ok);
+    CHECK(back.invisible == 1);
+    CHECK(back.invisible_key == 0x77);
+    CHECK_FALSE(ParseConfig("invisible = 2\n", c).ok);
+    CHECK_FALSE(ParseConfig("invisible_key = 0\n", c).ok);
+    CHECK_FALSE(ParseConfig("invisible_key = 0x100\n", c).ok);
+}
+
 TEST_CASE("ParseConfig reads overlay_mode and rejects values outside 0..2") {
     Config c;
     CHECK(c.overlay_mode == 2);

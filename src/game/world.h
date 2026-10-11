@@ -91,6 +91,8 @@ struct EspFrame {
     bool from_list = false;   // characters from the game's entity list (else from the fallback scan)
     bool player_ok = false;   // the player's character was among them
     Vec3 player_feet;
+    uintptr_t player_entity = 0;  // its entity "O" (the teleport writes its position)
+    uint32_t player_flags = 0;
     bool player_head_ok = false;
     Vec3 player_head;         // from its bones: the bullets' origin in third person
     uint32_t known = 0;     // character objects from the list (or the last scan)
@@ -162,6 +164,7 @@ private:
     uintptr_t r_weapon_state_ = 0;
     bool r_from_list_ = false;
     std::vector<uintptr_t> r_chars_;
+    uintptr_t r_player_entity_ = 0;  // the player's entity when last seen
     std::vector<float> bones_;
 };
 

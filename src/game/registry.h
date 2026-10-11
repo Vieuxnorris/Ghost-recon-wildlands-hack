@@ -7,6 +7,8 @@ namespace grw::game {
 
 // Reads size bytes at addr; false when unreadable. ctx is passed through (tests use a fake memory).
 using ReadFn = bool (*)(uintptr_t addr, void* dst, size_t size, void* ctx);
+// Writes size bytes at addr; false when it could not.
+using WriteFn = bool (*)(uintptr_t addr, const void* src, size_t size, void* ctx);
 
 struct RegistryPass {
     bool ok = false;          // a list resolved from the image

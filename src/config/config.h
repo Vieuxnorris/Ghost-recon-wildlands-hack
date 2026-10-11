@@ -77,6 +77,9 @@ struct Config {
     float esp_max_distance_m = 600.0f;
     int esp_enabled = 1;
     int esp_key = 0x75;  // VK_F6 toggles the ESP
+    int tp_key = 0x74;   // VK_F5: teleport to the map waypoint
+    int invisible = 0;       // 1 = no enemy sees the player (its visibility multipliers at 0)
+    int invisible_key = 0x76;  // VK_F7 toggles it
     int esp_civilians = 1;
     int esp_dead = 1;
     int esp_list_interval_ms = 100;   // reads of the game's entity list (new characters appear within this)

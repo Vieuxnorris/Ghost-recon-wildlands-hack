@@ -4,6 +4,7 @@ add_library(grw_core STATIC
   core/clock.cpp
   core/stats.cpp
   core/mem.cpp
+  core/debug_regs.cpp
   telemetry/json_line.cpp
   telemetry/telemetry.cpp
   config/config.cpp
@@ -19,7 +20,10 @@ add_library(grw_core STATIC
   scan/ray_filter.cpp
   game/model.cpp
   game/registry.cpp
-  game/world.cpp)
+  game/world.cpp
+  game/teleport.cpp
+  game/resources.cpp
+  game/stealth.cpp)
 target_include_directories(grw_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(testhost testhost/main.cpp)
